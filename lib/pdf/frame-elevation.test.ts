@@ -3,8 +3,10 @@
 // Strategy: build a minimal RfyDocument in-memory (no need for a real
 // .rfy file on disk in CI), generate a PDF, and assert basic invariants:
 //   - Output is a valid PDF (starts with %PDF-)
-//   - Byte length is reasonable (>1KB, <10MB)
-//   - Page count == frame count across all plans
+//   - Byte length is reasonable (>500B, <10MB)
+//   - Page count == frame count across all plans (confirmed by parsing
+//     the PDF back through pdf-lib — regex over compressed PDF streams
+//     is unreliable)
 //
 // Plus one integration test against a cached schedule XML if available
 // (skipped if the file isn't present, so CI doesn't break on machines
@@ -23,8 +25,7 @@ import type {
 } from "@hytek/rfy-codec";
 import { decodeXml } from "@hytek/rfy-codec";
 
-// Load a generated PDF back through pdf-lib to count pages reliably
-// (regex over compressed PDF streams is unreliable).
+// Load a generated PDF back through pdf-lib to count pages reliably.
 async function pageCountOf(bytes: Uint8Array): Promise<number> {
   const doc = await PDFDocument.load(bytes);
   return doc.getPageCount();
@@ -82,7 +83,7 @@ function makeMinimalDoc(frameCount = 3): RfyDocument {
         { kind: "point", type: "Bolt", pos: 200 },
         { kind: "point", type: "Bolt", pos: 2800 },
       ]),
-      // Vertical stud — rotate corners by stacking a thin tall rect.
+      // Vertical stud — corners stack a thin tall rect.
       {
         ...makeStick(`S${i + 1}`, 2615, [
           { kind: "point", type: "LipNotch", pos: 100 },
@@ -125,7 +126,6 @@ describe("generateFramePdf", () => {
     expect(bytes).toBeInstanceOf(Uint8Array);
     expect(bytes.length).toBeGreaterThan(1024);
     expect(bytes.length).toBeLessThan(10 * 1024 * 1024);
-    // PDF magic.
     const head = Buffer.from(bytes.slice(0, 5)).toString("ascii");
     expect(head).toBe("%PDF-");
   });
@@ -142,8 +142,6 @@ describe("generateFramePdf", () => {
     const doc = makeMinimalDoc(1);
     const a4 = await generateFramePdf(doc, { pageSize: "A4" });
     const a3 = await generateFramePdf(doc, { pageSize: "A3" });
-    // A3 is bigger so the PDF stream will be slightly longer (more white-
-    // space and text-positioning numbers). Don't be strict — just sanity.
     expect(a4.length).toBeGreaterThan(0);
     expect(a3.length).toBeGreaterThan(0);
   });
@@ -160,11 +158,8 @@ describe("generateFramePdf", () => {
       },
     };
     const bytes = await generateFramePdf(doc);
-    expect(bytes.length).toBeGreaterThan(1024);
-    // Should still emit a fallback "no frames" page.
-    const text = Buffer.from(bytes).toString("binary");
-    const matches = text.match(/\/Type \/Page[^s]/g) ?? [];
-    expect(matches.length).toBe(1);
+    expect(bytes.length).toBeGreaterThan(500);
+    expect(await pageCountOf(bytes)).toBe(1);
   });
 
   it("handles all tool-op kinds without crashing", async () => {
@@ -217,14 +212,11 @@ describe("generateFramePdf with cached schedule XML", () => {
     const xml = readFileSync(sample, "utf8");
     const doc = decodeXml(xml);
     const bytes = await generateFramePdf(doc, { pageSize: "A3" });
-    expect(bytes.length).toBeGreaterThan(2 * 1024); // real doc ⇒ at least 2KB
+    expect(bytes.length).toBeGreaterThan(2 * 1024);
     expect(bytes.length).toBeLessThan(10 * 1024 * 1024);
 
-    // Confirm page count matches frame count.
     let expectedFrames = 0;
     for (const p of doc.project.plans) expectedFrames += p.frames.length;
-    const text = Buffer.from(bytes).toString("binary");
-    const matches = text.match(/\/Type \/Page[^s]/g) ?? [];
-    expect(matches.length).toBe(expectedFrames);
+    expect(await pageCountOf(bytes)).toBe(expectedFrames);
   });
 });

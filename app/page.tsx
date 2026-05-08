@@ -167,6 +167,12 @@ export default function Page() {
           </h1>
           <div className="flex gap-2">
             <a
+              href="/generate"
+              className="text-sm px-3 py-1.5 rounded bg-yellow-400 text-black font-medium hover:bg-yellow-300 transition"
+            >
+              📄 Frame PDFs →
+            </a>
+            <a
               href="/viewer"
               className="text-sm px-3 py-1.5 rounded bg-yellow-400 text-black font-medium hover:bg-yellow-300 transition"
             >
