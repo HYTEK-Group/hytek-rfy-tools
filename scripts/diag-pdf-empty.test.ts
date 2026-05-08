@@ -15,7 +15,7 @@ describe("diag pdf empty bug", () => {
     const xml = readFileSync(
       join(
         process.cwd(),
-        "node_modules/@hytek/rfy-codec/test-corpus/HG250057_SE25_LOT_99_RATNAM_ROAD_REDBANK_PLAINS/U2-GF-TIN-70.075.xml"
+        "node_modules/@hytek/rfy-codec/test-corpus/HG250082_FLAGSTONE_OSHC/UPPER-GF-LBW-89.075.xml"
       ),
       "utf8"
     );
