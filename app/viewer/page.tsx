@@ -9,7 +9,12 @@
 
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { decode } from "@hytek/rfy-codec";
+// Deep import of the codec's decode entry-point. The package's main `index.js`
+// re-exports `rules/action-defs.js`, which top-level imports `node:fs` and is
+// therefore not safe to bundle into a client component (Turbopack can't tree-
+// shake side-effecting top-level imports). decode itself only depends on
+// crypto + format + fast-xml-parser — all browser-safe.
+import { decode } from "@hytek/rfy-codec/dist/decode.js";
 import { useViewerStore } from "./store";
 import { Sidebar } from "./components/Sidebar";
 import { Wall } from "./components/Wall";
