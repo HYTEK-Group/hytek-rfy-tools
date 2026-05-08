@@ -15,8 +15,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import * as zlib from "node:zlib";
 import { PDFDocument } from "pdf-lib";
 import { generateFramePdf } from "./frame-elevation";
+import { framecadImportToRfy } from "../framecad-import";
 import type {
   RfyDocument,
   RfyFrame,
@@ -24,6 +26,41 @@ import type {
   RfyToolingOp,
 } from "@hytek/rfy-codec";
 import { decodeXml } from "@hytek/rfy-codec";
+
+// Inflate every Flate-encoded stream in a PDF and concatenate the decoded
+// content. Used to inspect raw vector ops (moveto, lineto) for regression
+// testing that polygons are drawn within page bounds.
+function inflateAllStreams(bytes: Uint8Array): string {
+  const buf = Buffer.from(bytes);
+  let out = "";
+  let idx = 0;
+  while (true) {
+    const start = buf.indexOf(Buffer.from("stream\n"), idx);
+    if (start < 0) break;
+    const end = buf.indexOf(Buffer.from("\nendstream"), start);
+    if (end < 0) break;
+    const body = buf.slice(start + 7, end);
+    try {
+      out += zlib.inflateSync(body).toString("binary") + "\n";
+    } catch {
+      out += body.toString("binary") + "\n";
+    }
+    idx = end + 10;
+  }
+  return out;
+}
+
+// Count `x y m` (moveto) commands in a decoded PDF stream and return the
+// list of (x, y) tuples. Useful for verifying drawn-shapes coordinates.
+function moveToPoints(streamText: string): Array<{ x: number; y: number }> {
+  const out: Array<{ x: number; y: number }> = [];
+  const re = /(?:^|\s)(-?[\d.]+) (-?[\d.]+) m(?=\s|$)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(streamText)) !== null) {
+    out.push({ x: parseFloat(m[1]!), y: parseFloat(m[2]!) });
+  }
+  return out;
+}
 
 // Load a generated PDF back through pdf-lib to count pages reliably.
 async function pageCountOf(bytes: Uint8Array): Promise<number> {
@@ -219,4 +256,100 @@ describe("generateFramePdf with cached schedule XML", () => {
     for (const p of doc.project.plans) expectedFrames += p.frames.length;
     expect(await pageCountOf(bytes)).toBe(expectedFrames);
   });
+});
+
+// ---------- Regression: stick polygons drawn within page bounds ----------
+//
+// Bug fixed 2026-05-09: pdf-lib's `drawSvgPath` applies an internal
+// `scale(1, -1)` to flip the SVG Y axis, and without an explicit `y:`
+// translate option, polygon coordinates land at NEGATIVE Y on the PDF
+// page. Sticks were being drawn off-page (visibly empty PDFs) for every
+// production XML. The renderer now emits raw moveto/lineto ops which
+// don't apply any flip.
+//
+// This test guards against regression by inflating every PDF stream and
+// asserting:
+//   1. Many moveTo commands exist (proving sticks are drawn)
+//   2. ALL moveTo coordinates are within page bounds — i.e. positive and
+//      less than the page's width/height in points
+//
+// The minimal test doc has 2615mm-tall studs on a 595×841 A4-equivalent
+// scaling, so reasonable on-page coords land in the (0, 800) range.
+
+describe("generateFramePdf — vector-ops regression", () => {
+  it("emits stick polygon moveTos within page bounds (in-memory doc)", async () => {
+    const doc = makeMinimalDoc(1);
+    const bytes = await generateFramePdf(doc, { pageSize: "A3" });
+    const stream = inflateAllStreams(bytes);
+    const pts = moveToPoints(stream);
+
+    // The minimal doc has 3 sticks, each a 4-vertex polygon → at least
+    // 3 moveTos for stick polygons (plus more for tooling-mark V shapes,
+    // anchor circles, dimension ticks, etc.). Threshold 10 is conservative.
+    expect(pts.length).toBeGreaterThanOrEqual(10);
+
+    // Page is A3 landscape → 1190.55 × 841.89 pt.
+    const PAGE_W = 1190.55;
+    const PAGE_H = 841.89;
+    // Allow a small negative margin for line-width overflow at edges.
+    const MIN = -2;
+    const offPage = pts.filter(
+      p => p.x < MIN || p.y < MIN || p.x > PAGE_W + 2 || p.y > PAGE_H + 2
+    );
+    if (offPage.length > 0) {
+      throw new Error(
+        `${offPage.length}/${pts.length} moveTos drawn off-page. ` +
+          `First 5 off-page coords: ${offPage.slice(0, 5).map(p => `(${p.x},${p.y})`).join(", ")}. ` +
+          `If you see negative Y, drawSvgPath's Y-flip is back — use raw moveto/lineto ops.`
+      );
+    }
+  });
+
+  it("emits stick polygon moveTos within page bounds (framecad_import path)", async () => {
+    // Use a framecad_import XML to exercise the full pipeline that
+    // production HD1 hits (the path that broke before this fix). Locate
+    // any <framecad_import> XML in tmp_detailer_test or fall back to the
+    // codec test corpus.
+    const candidates = [
+      join(process.cwd(), "tmp_detailer_test", "HG260002-LBW.xml"),
+      join(
+        process.cwd(),
+        "node_modules/@hytek/rfy-codec/test-corpus/2603191/2603191-ROCKVILLE.xml"
+      ),
+      join(
+        process.cwd(),
+        "node_modules/@hytek/rfy-codec/test-corpus/HG250082_FLAGSTONE_OSHC/UPPER-GF-LBW-89.075.xml"
+      ),
+    ];
+    const sample = candidates.find(p => existsSync(p));
+    if (!sample) {
+      // No framecad_import XML available — skip rather than fail CI on a
+      // dev machine without the corpus.
+      return;
+    }
+
+    const xml = readFileSync(sample, "utf8");
+    const result = framecadImportToRfy(xml);
+    const doc = decodeXml(result.xml);
+    const bytes = await generateFramePdf(doc, { pageSize: "A3" });
+    const stream = inflateAllStreams(bytes);
+    const pts = moveToPoints(stream);
+
+    // Real production XML has hundreds of sticks → thousands of moveTos
+    // (4 corners × N sticks + tooling marks). 100 is a safe lower bound.
+    expect(pts.length).toBeGreaterThanOrEqual(100);
+
+    const PAGE_W = 1190.55;
+    const PAGE_H = 841.89;
+    const MIN = -2;
+    const offPage = pts.filter(
+      p => p.x < MIN || p.y < MIN || p.x > PAGE_W + 2 || p.y > PAGE_H + 2
+    );
+    if (offPage.length > 0) {
+      throw new Error(
+        `${offPage.length}/${pts.length} moveTos drawn off-page from ${sample.split(/[\\/]/).pop()}. ` +
+          `First 5 off-page: ${offPage.slice(0, 5).map(p => `(${p.x},${p.y})`).join(", ")}.`
+      );
+    }
+  }, 120_000);
 });

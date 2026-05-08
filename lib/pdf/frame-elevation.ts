@@ -21,7 +21,24 @@
 // area, then translate so the frame's bbox.minX/minY map to the drawing
 // area's bottom-left.
 
-import { PDFDocument, PDFPage, StandardFonts, rgb, type RGB } from "pdf-lib";
+import {
+  PDFDocument,
+  PDFPage,
+  StandardFonts,
+  rgb,
+  type RGB,
+  pushGraphicsState,
+  popGraphicsState,
+  moveTo,
+  lineTo,
+  closePath,
+  fillAndStroke,
+  fill,
+  stroke,
+  setFillingColor,
+  setStrokingColor,
+  setLineWidth,
+} from "pdf-lib";
 import type {
   RfyDocument,
   RfyFrame,
@@ -399,16 +416,27 @@ function drawStick(
   const { s, ox, oy } = layout;
 
   // Stick body — filled polygon from outline corners.
-  // pdf-lib has drawSvgPath but no native polygon, so we use drawSvgPath.
-  const svgPath = polygonSvgPath(corners.map(c => ({
+  //
+  // BUG (2026-05-09): pdf-lib's `drawSvgPath` applies `scale(1, -1)` to
+  // flip the SVG Y axis (SVG = Y-down, PDF = Y-up). Without an explicit
+  // `y:` translate option that defaults to `0`, polygon coordinates land
+  // at NEGATIVE Y on the PDF page — i.e. off-page, completely invisible.
+  // Verified against HG260002 5 MOSSIP COURT WELLINGTON POINT-GF-LBW
+  // production XML (1431 sticks rendered to nowhere).
+  //
+  // Fix: emit raw PDF path operators directly. PDF native moveto/lineto
+  // operate in PDF coordinate space (Y-up, origin bottom-left), no flip.
+  const polyPts = corners.map(c => ({
     x: ox + c.x * s,
     y: oy + c.y * s,
-  })));
-  page.drawSvgPath(svgPath, {
-    color: rgb(0.85, 0.86, 0.88),       // light steel grey fill
-    borderColor: rgb(0.27, 0.27, 0.3),  // darker grey outline
-    borderWidth: 0.5,
-  });
+  }));
+  drawFilledPolygon(
+    page,
+    polyPts,
+    rgb(0.85, 0.86, 0.88),    // light steel grey fill
+    rgb(0.27, 0.27, 0.3),     // darker grey outline
+    0.5
+  );
 
   // Stick label at midpoint.
   const labelMid = posAlongStick(m, m.length / 2);
@@ -513,9 +541,19 @@ function drawMarker(
     case "RightFlange":
     case "LeftPartialFlange":
     case "RightPartialFlange": {
-      // V-shape via SVG path.
-      const path = `M ${pt.x - r} ${pt.y - r} L ${pt.x} ${pt.y + r} L ${pt.x + r} ${pt.y - r} Z`;
-      page.drawSvgPath(path, { color, borderWidth: 0 });
+      // V-shape (filled triangle) — drawn via raw operators to avoid the
+      // pdf-lib `drawSvgPath` Y-flip bug (see drawStick comment).
+      drawFilledPolygon(
+        page,
+        [
+          { x: pt.x - r, y: pt.y - r },
+          { x: pt.x, y: pt.y + r },
+          { x: pt.x + r, y: pt.y - r },
+        ],
+        color,
+        null,
+        0
+      );
       break;
     }
     case "InnerNotch":
@@ -542,8 +580,20 @@ function drawMarker(
     }
     case "Chamfer":
     case "TrussChamfer": {
-      const path = `M ${pt.x - r} ${pt.y - r} L ${pt.x + r} ${pt.y + r} M ${pt.x - r} ${pt.y + r} L ${pt.x + r} ${pt.y - r}`;
-      page.drawSvgPath(path, { borderColor: color, borderWidth: 1.2 });
+      // X-shape (two crossed lines) — pdf-lib's drawLine works in native
+      // PDF coords (no Y flip), so this is safe.
+      page.drawLine({
+        start: { x: pt.x - r, y: pt.y - r },
+        end: { x: pt.x + r, y: pt.y + r },
+        thickness: 1.2,
+        color,
+      });
+      page.drawLine({
+        start: { x: pt.x - r, y: pt.y + r },
+        end: { x: pt.x + r, y: pt.y - r },
+        thickness: 1.2,
+        color,
+      });
       break;
     }
     default:
@@ -608,11 +658,51 @@ function drawOverallDimensions(
 
 // ---------- Utilities ----------
 
-function polygonSvgPath(pts: Pt[]): string {
-  if (pts.length === 0) return "";
-  const head = `M ${pts[0]!.x} ${pts[0]!.y}`;
-  const tail = pts.slice(1).map(p => `L ${p.x} ${p.y}`).join(" ");
-  return `${head} ${tail} Z`;
+/**
+ * Draw a filled+stroked polygon using raw PDF path operators.
+ *
+ * Why not `page.drawSvgPath()`? Because pdf-lib's drawSvgPath applies a
+ * `scale(1, -1)` Y-flip (since SVG's Y axis is opposite PDF's), and without
+ * an explicit `y:` translation option the polygon coordinates land at
+ * NEGATIVE Y — i.e. off the visible page. This silently broke every PDF
+ * the renderer produced (Agent 2's tests only checked byte length and
+ * page count, never that anything was visible).
+ *
+ * Raw moveto/lineto operate in PDF user-space directly, so coordinates
+ * are interpreted exactly as we computed them (origin bottom-left, Y-up).
+ *
+ * @param fill   Fill colour, or null for no fill (stroke-only).
+ * @param stroke Stroke colour, or null for fill-only.
+ * @param strokeWidth Border width in PDF points; 0 = no stroke.
+ */
+function drawFilledPolygon(
+  page: PDFPage,
+  pts: Pt[],
+  fillColor: RGB | null,
+  strokeColor: RGB | null,
+  strokeWidth: number
+): void {
+  if (pts.length < 3) return;
+  const ops: any[] = [pushGraphicsState()];
+  if (fillColor) ops.push(setFillingColor(fillColor));
+  if (strokeColor && strokeWidth > 0) {
+    ops.push(setStrokingColor(strokeColor));
+    ops.push(setLineWidth(strokeWidth));
+  }
+  ops.push(moveTo(pts[0]!.x, pts[0]!.y));
+  for (let i = 1; i < pts.length; i++) {
+    ops.push(lineTo(pts[i]!.x, pts[i]!.y));
+  }
+  ops.push(closePath());
+  if (fillColor && strokeColor && strokeWidth > 0) {
+    ops.push(fillAndStroke());
+  } else if (fillColor) {
+    ops.push(fill());
+  } else if (strokeColor && strokeWidth > 0) {
+    ops.push(stroke());
+  }
+  ops.push(popGraphicsState());
+  page.pushOperators(...ops);
 }
 
 function truncate(s: string, n: number): string {
