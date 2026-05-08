@@ -9,7 +9,7 @@
 // Job state is filesystem-rooted under <cache_root>/_queue/<id>/. The runner
 // updates state.json as it progresses; the GET endpoint inspects that.
 import { NextResponse } from "next/server";
-import { spawn } from "node:child_process";
+import { spawn, type SpawnOptions } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -97,18 +97,16 @@ export async function POST(req: Request) {
 
     // Detached spawn — the route returns immediately, runner finishes ~50s later.
     const isWin = process.platform === "win32";
-    const child = spawn(
-      pythonExe(),
-      ["-u", RUNNER, jobDir],
-      {
-        detached: true,
-        stdio: "ignore",
-        ...(isWin ? { windowsHide: false, shell: false } : {}),
-        // CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP — independent of parent.
-        // @ts-expect-error: creationFlags is win32-only on Node 18+
-        creationFlags: isWin ? 0x10 | 0x00000200 : 0,
-      }
-    );
+    // creationFlags is win32-only on Node 18+ but missing from @types/node;
+    // cast through SpawnOptions so the return type doesn't collapse to `never`.
+    const spawnOpts = {
+      detached: true,
+      stdio: "ignore" as const,
+      ...(isWin ? { windowsHide: false, shell: false } : {}),
+      // CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP — independent of parent.
+      creationFlags: isWin ? 0x10 | 0x00000200 : 0,
+    } as SpawnOptions;
+    const child = spawn(pythonExe(), ["-u", RUNNER, jobDir], spawnOpts);
     child.unref(); // parent doesn't wait on it
 
     return NextResponse.json(

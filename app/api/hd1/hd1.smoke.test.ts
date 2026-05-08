@@ -48,7 +48,9 @@ function makeReq(buf: Buffer, filename: string): Request {
       "content-type": "application/octet-stream",
     },
     // Convert Node Buffer to ArrayBuffer slice — Request expects BodyInit.
-    body: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+    // Cast: buf.buffer is typed as ArrayBuffer | SharedArrayBuffer in newer @types/node;
+    // Node Buffers always sit on a real ArrayBuffer, so this is safe.
+    body: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer,
   });
 }
 

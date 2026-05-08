@@ -15,7 +15,7 @@
 // Local-only: this requires Python + Detailer + a license-OK install on the
 // machine running the Next.js server. On Vercel/cloud it returns 503.
 import { NextResponse } from "next/server";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -119,17 +119,19 @@ export async function POST(req: Request) {
       // CREATE_NEW_CONSOLE = 0x10 — needed for pyautogui foreground rights on Windows.
       const isWin = process.platform === "win32";
       const creationflags = isWin ? 0x10 : 0;
+      // creationFlags is win32-only on Node 18+ but missing from @types/node;
+      // cast through the documented options type to satisfy strict TS.
+      const spawnOpts = {
+        encoding: "utf-8",
+        timeout: 240_000,
+        windowsHide: false, // CREATE_NEW_CONSOLE makes a window briefly visible — that's OK
+        ...(isWin ? { detached: false, shell: false } : {}),
+        creationFlags: creationflags,
+      } as SpawnSyncOptionsWithStringEncoding;
       workerResult = spawnSync(
         pythonExe(),
         ["-u", WORKER, tmpXml, tmpRfy],
-        {
-          encoding: "utf-8",
-          timeout: 240_000,
-          windowsHide: false, // CREATE_NEW_CONSOLE makes a window briefly visible — that's OK
-          ...(isWin ? { detached: false, shell: false } : {}),
-          // @ts-expect-error: creationFlags is win32-only on Node 18+
-          creationFlags: creationflags,
-        }
+        spawnOpts,
       );
       if (workerResult.status !== 0) {
         const stderr = (workerResult.stderr || "").toString();
