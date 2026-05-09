@@ -228,6 +228,39 @@ const MARGIN_PT = 36;          // ~12.7mm — page margin
 const TITLE_HEIGHT_PT = 60;    // title block at top
 const FOOTER_HEIGHT_PT = 24;   // optional footer
 
+/**
+ * True iff the plan is a wall plan whose sticks should render in
+ * "wall-elevation" style — thin outlined rectangles (no fill for studs).
+ *
+ * Pattern matches `-LBW-` and `-NLBW-` (load-bearing + non-load-bearing
+ * wall) plan suffixes case-insensitively. Same regex used elsewhere in the
+ * codec (`isWallServicePlanName` in @hytek/rfy-codec/src/simplify-wall-service.ts)
+ * so behaviour stays consistent if/when more plan types adopt the wall
+ * convention.
+ *
+ * For walls the operator's view is perpendicular to the wall face — the
+ * 89mm web is INTO the page and only the 41mm flange edge is visible.
+ * Detailer renders this convention as thin hairline-ish outlined rectangles;
+ * we mirror that here so the PDFs read the same as the EOL Detailer output
+ * Scott's been using for years.
+ */
+function isWallPlan(planName: string): boolean {
+  return /-(N?LBW)-/i.test(planName);
+}
+
+/**
+ * Stud-family usage roles in a wall — render as outline-only (no fill) so
+ * the 41mm flange edge reads as a hairline, matching Detailer's wall
+ * elevation convention (visible in the side-by-side compared 2026-05-09).
+ *
+ * Plates (top/bottom/head/sill/nog) keep the filled rectangle look — they
+ * read as substantial structural members in Detailer too.
+ */
+function isWallStudUsage(usage: string | undefined): boolean {
+  const u = (usage ?? "").toLowerCase();
+  return u === "stud" || u === "trimstud" || u === "endstud" || u === "jackstud";
+}
+
 function drawFramePage(
   page: PDFPage,
   doc: RfyDocument,
@@ -290,8 +323,14 @@ function drawFramePage(
   });
 
   // Sticks.
+  // wallStyle = render studs as outline-only thin rectangles (matches
+  // Detailer's elevation convention: web into the page, only the flange
+  // edge visible — reads as a hairline at scale). Plates stay filled.
+  // Truss/floor plans keep the current filled-rectangle look since the
+  // 89mm web IS in the elevation plane there.
+  const wallStyle = isWallPlan(planName);
   for (const stick of frame.sticks) {
-    drawStick(page, stick, layout, font, opts);
+    drawStick(page, stick, layout, font, opts, wallStyle);
   }
 
   // Dimension lines (simple — overall width + height of bbox).
@@ -407,7 +446,8 @@ function drawStick(
   stick: RfyStick,
   layout: PageLayout,
   font: any,
-  opts: Required<PdfOptions>
+  opts: Required<PdfOptions>,
+  wallStyle: boolean
 ): void {
   const m = stickMidline(stick);
   if (!m) return;
@@ -415,7 +455,7 @@ function drawStick(
   const corners = stick.outlineCorners!;
   const { s, ox, oy } = layout;
 
-  // Stick body — filled polygon from outline corners.
+  // Stick body — polygon from outline corners.
   //
   // BUG (2026-05-09): pdf-lib's `drawSvgPath` applies `scale(1, -1)` to
   // flip the SVG Y axis (SVG = Y-down, PDF = Y-up). Without an explicit
@@ -430,11 +470,22 @@ function drawStick(
     x: ox + c.x * s,
     y: oy + c.y * s,
   }));
+
+  // Render style:
+  //   - Wall plan + stud-family usage → outline only (no fill). The 41mm
+  //     flange-edge thickness reads as a hairline at typical page scale,
+  //     matching Detailer's wall-elevation convention (verified side-by-side
+  //     against HG260002 GF-NLBW-89.075 frame N37 reference PDF, 2026-05-09).
+  //   - Wall plan + plate usage (top/bottom/head/sill/nog) → keep filled
+  //     rectangle. Detailer also draws plates as visible filled members.
+  //   - Truss/floor plans → keep filled rectangle. The 89mm web IS in the
+  //     elevation plane there, so the wider visual presence is correct.
+  const studOutlineOnly = wallStyle && isWallStudUsage(stick.usage);
   drawFilledPolygon(
     page,
     polyPts,
-    rgb(0.85, 0.86, 0.88),    // light steel grey fill
-    rgb(0.27, 0.27, 0.3),     // darker grey outline
+    studOutlineOnly ? null : rgb(0.85, 0.86, 0.88),  // light steel grey fill (omit for wall studs)
+    rgb(0.27, 0.27, 0.3),                             // darker grey outline
     0.5
   );
 
