@@ -399,18 +399,25 @@ function computeWebOverrides(
     const hMin = Math.min(h.m.start.x, h.m.end.x);
     const hMax = Math.max(h.m.start.x, h.m.end.x);
 
-    // Same structural rule as end studs: the JAMB stud's WEB faces away
-    // from the opening (toward the wall body), LIPS face into the
-    // opening (so the door/window frame can attach via lip screws).
+    // Structural rule for opening jambs (Scott, 2026-05-09 — important
+    // correction to the prior pass): the JAMB stud's WEB faces INTO the
+    // opening, LIPS face AWAY from the opening (toward the wall body).
+    // Stated as a unified rule for ALL stud-position overrides:
+    //   "Lips face the wall body. Web faces away from the wall body."
+    // For end studs, away-from-body = the corner / wall edge.
+    // For jambs, away-from-body = into the opening (door/window cavity).
     for (const v of verticals) {
       if (overrides.has(v.stick.name)) continue; // frame-end takes priority
       if (Math.abs(v.crossX - hMin) < JAMB_TOL_MM) {
         // LEFT jamb (stud at hMin = left edge of opening): opening is on
-        // its RIGHT side, so lips on RIGHT = -perp → lipSign=-1.
-        overrides.set(v.stick.name, -1);
-      } else if (Math.abs(v.crossX - hMax) < JAMB_TOL_MM) {
-        // RIGHT jamb: opening on its LEFT, lips on LEFT = +perp → lipSign=+1.
+        // its RIGHT side, wall body on its LEFT. Web faces RIGHT (into
+        // opening) → lipSign=+1 (lips on +perp = LEFT = wall body).
         overrides.set(v.stick.name, +1);
+      } else if (Math.abs(v.crossX - hMax) < JAMB_TOL_MM) {
+        // RIGHT jamb: opening on its LEFT, wall body on its RIGHT. Web
+        // faces LEFT (into opening) → lipSign=-1 (lips on -perp = RIGHT
+        // = wall body).
+        overrides.set(v.stick.name, -1);
       }
     }
   }

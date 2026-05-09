@@ -683,3 +683,109 @@ describe("generateFramePdf — end-stud orientation", () => {
     expect(insideLeftEdge.length).toBeGreaterThanOrEqual(insideRightEdge.length);
   });
 });
+
+// ---------- Regression: opening-jamb orientation (web INTO opening) ----------
+//
+// Scott's structural rule (2026-05-09 final): "any opening in a wall needs
+// the sticks that form the opening to have the web side facing INTO the
+// opening. you cant have lips looking into the opening." Lips face the
+// wall body (away from the opening), web faces into the opening cavity.
+//
+// Synthesised wall: 4 vertical studs at x=0/600/1200/1800 with a HeadPlate
+// (lintel) spanning x=600 to x=1200 — the lintel being a partial-width
+// horizontal member triggers computeWebOverrides' opening-jamb detection.
+// Studs at x=600 (LEFT jamb) and x=1200 (RIGHT jamb) become the jamb pair.
+//
+// Assertion: LEFT jamb (at x=600..641) gets its doubled (web) line on the
+// RIGHT edge of the stud (x ≈ 641 - OFFSET_PT) since web faces RIGHT into
+// the opening. Studs at x=0 and x=1800 are end studs (different rule —
+// covered by the leftmost-end-stud test above).
+describe("generateFramePdf — opening-jamb orientation", () => {
+  it("LEFT jamb of an opening doubles its INNER (toward-opening) edge", async () => {
+    const studHeight = 2400;
+    const sticks: RfyStick[] = [];
+    // 4 verticals: end-end-jamb-jamb-end... actually 4 verticals at
+    // 0/600/1200/1800. The LEFTMOST (x=0) and RIGHTMOST (x=1800) are end
+    // studs; the inner two (x=600 and x=1200) are jambs because of the
+    // partial-width HeadPlate spanning between them.
+    for (const x of [0, 600, 1200, 1800]) {
+      sticks.push({
+        name: `S${sticks.length + 1}`,
+        length: studHeight,
+        type: "stud",
+        flipped: false,
+        profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+        tooling: [],
+        outlineCorners: [
+          { x: x, y: 0 },
+          { x: x + 41, y: 0 },
+          { x: x + 41, y: studHeight },
+          { x: x, y: studHeight },
+        ],
+      });
+    }
+    // Top + bottom plate (full width).
+    sticks.push({
+      name: "T1", length: 1841, type: "plate", flipped: false,
+      profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+      tooling: [],
+      outlineCorners: [
+        { x: 0, y: studHeight - 41 }, { x: 1841, y: studHeight - 41 },
+        { x: 1841, y: studHeight }, { x: 0, y: studHeight },
+      ],
+    });
+    sticks.push({
+      name: "B1", length: 1841, type: "plate", flipped: false,
+      profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+      tooling: [],
+      outlineCorners: [
+        { x: 0, y: 0 }, { x: 1841, y: 0 },
+        { x: 1841, y: 41 }, { x: 0, y: 41 },
+      ],
+    });
+    // HeadPlate (lintel) — partial-width, x=600 to x=1200 — triggers jamb
+    // detection on the stud at x=600 (LEFT jamb) and x=1200 (RIGHT jamb).
+    sticks.push({
+      name: "H1", length: 600, type: "plate", flipped: false,
+      profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+      tooling: [], usage: "HeadPlate",
+      outlineCorners: [
+        { x: 600, y: 1800 }, { x: 1200, y: 1800 },
+        { x: 1200, y: 1841 }, { x: 600, y: 1841 },
+      ],
+    });
+    const frameTypes = new Map<string, string>([["N1", "ExternalWall"]]);
+    const doc: RfyDocument = {
+      scheduleVersion: "2",
+      project: {
+        name: "JAMB-TEST", jobNum: "T", client: "c", date: "2026-05-09",
+        plans: [{ name: "P", frames: [makeFrame("N1", sticks)] }],
+      },
+    };
+    const bytes = await generateFramePdf(doc, { pageSize: "A3", frameTypes });
+    const stream = inflateAllStreams(bytes);
+    const polys = parsePolysWithCTM(stream);
+
+    // Find the 4 vertical stud polygons.
+    const verticals = polys.filter(p => {
+      if (p.xs.length !== 4) return false;
+      const w = Math.max(...p.xs) - Math.min(...p.xs);
+      const h = Math.max(...p.ys) - Math.min(...p.ys);
+      return h > w * 5 && Math.max(w, h) > 50;
+    });
+    expect(verticals.length).toBe(4);
+    // LEFT jamb is the SECOND-from-left vertical stud.
+    const sortedByX = [...verticals].sort((a, b) => Math.min(...a.xs) - Math.min(...b.xs));
+    const leftJamb = sortedByX[1]!;
+    const jambMinX = Math.min(...leftJamb.xs);
+    const jambMaxX = Math.max(...leftJamb.xs);
+
+    // For LEFT jamb, web faces RIGHT (into opening). Doubled line lands
+    // just inside the RIGHT edge of the stud.
+    const ptsAll = moveToPoints(stream);
+    const insideLeftEdge = ptsAll.filter(p => p.x > jambMinX + 0.2 && p.x < jambMinX + 3 && p.y < 1000 && p.y > 50);
+    const insideRightEdge = ptsAll.filter(p => p.x > jambMaxX - 3 && p.x < jambMaxX - 0.2 && p.y < 1000 && p.y > 50);
+    expect(insideRightEdge.length).toBeGreaterThanOrEqual(1);
+    expect(insideRightEdge.length).toBeGreaterThanOrEqual(insideLeftEdge.length);
+  });
+});
