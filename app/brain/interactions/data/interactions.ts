@@ -290,33 +290,40 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 1780 },
         ],
       },
-      // Plate — horizontal, mouth opens DOWNWARD. Position so plate's
-      // web is at world Y = brace tip Y + ~30 (clearance) ≈ 1590.
-      // Plate length 2400 centred over brace tip world X=900.
+      // Plate — horizontal, mouth opens DOWNWARD. Plate's web positioned
+      // just above brace's tip so the brace's swaged section nests fully
+      // inside the cavity. Brace tip Y = 1800·sin60° = 1559.4. Place
+      // plate's web at Y = 1561. Cavity from Y = 1520 (lip-tip,
+      // notched open) to Y = 1560.25 (web inner face).
       {
         profile: PROFILE_70S41,
         length: 2400,
-        position: [-300, 1590, 0],
+        position: [-300, 1561, 0],
         rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate (P)",
         ops: [
-          // Lipnotch centered at plate-local z = brace tip world X - plate
-          // start world X = 900 - (-300) = 1200. Span ±25mm = 50mm.
+          // Lipnotch centered where brace passes through. Brace's world
+          // X position at the lip-tip Y level (Y=1520) is z=1755 along
+          // brace, so world X = 1755·cos60° = 877. Plate-local z =
+          // 877-(-300) = 1177. Brace's flange depth at that level
+          // covers ~50mm of plate length, so span 1145-1210 = 65mm.
           {
             type: "LipNotch",
-            spanStart: 1175,
-            spanEnd: 1225,
+            spanStart: 1145,
+            spanEnd: 1210,
             flangeSide: "both",
           },
+          // Dimple at the brace's tip projection on plate
           { type: "InnerDimple", pos: 1200 },
         ],
       },
     ],
     joints: [
       {
-        // Joint centre — slightly inside plate, at brace tip - small
-        // offset. Position chosen visually for the screw on the joint.
-        position: [880, 1568, 0],
+        // Joint centre — at brace's z=1775, inside plate cavity.
+        // World: 1775·cos60° = 887, 1775·sin60° = 1537. Inside cavity
+        // (Y=1520 to 1560.25).
+        position: [887, 1537, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
@@ -324,7 +331,7 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "brace-to-top-plate",
       },
     ],
-    cameraTarget: [880, 1550, 0],
+    cameraTarget: [880, 1540, 0],
     cameraDistance: 420,
   },
 
@@ -566,20 +573,20 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 1780 },
         ],
       },
-      // Top plate — horizontal, mouth opens DOWN. Position so plate web
-      // is at world Y = brace tip Y + clearance ≈ 1590.
+      // Top plate — horizontal, mouth opens DOWN. Plate's web at
+      // Y = 1561, just above brace tip Y = 1559.4. Cavity from Y =
+      // 1520 (lipnotch open) to Y = 1560.25 (web inner face).
       {
         profile: PROFILE_70S41,
         length: 2400,
-        position: [-300, 1590, 0],
+        position: [-300, 1561, 0],
         rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate",
         ops: [
-          // Brace tip at world X=900 → plate-local z = 900-(-300) = 1200
           {
             type: "LipNotch",
-            spanStart: 1175,
-            spanEnd: 1225,
+            spanStart: 1145,
+            spanEnd: 1210,
             flangeSide: "both",
           },
           { type: "InnerDimple", pos: 1200 },
@@ -588,7 +595,7 @@ export const INTERACTIONS: InteractionConfig[] = [
     ],
     joints: [
       {
-        position: [880, 1568, 0],
+        position: [887, 1537, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
@@ -596,7 +603,7 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "wall-brace-to-plate",
       },
     ],
-    cameraTarget: [880, 1550, 0],
+    cameraTarget: [880, 1540, 0],
     cameraDistance: 420,
   },
 
