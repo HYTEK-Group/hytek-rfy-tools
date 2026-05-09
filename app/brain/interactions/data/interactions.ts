@@ -253,6 +253,9 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "stud-to-top-plate",
       },
     ],
+    // Camera focuses on the joint area at the top of the stud.
+    cameraTarget: [0, 2360, 0],
+    cameraDistance: 380,
   },
 
   // ──────────────────────────────────────────────────────────────────
@@ -321,6 +324,8 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "brace-to-top-plate",
       },
     ],
+    cameraTarget: [880, 1550, 0],
+    cameraDistance: 420,
   },
 
   // ──────────────────────────────────────────────────────────────────
@@ -378,8 +383,9 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "A vertical truss web NESTS INSIDE a horizontal top chord at 90°. The web's top tip enters through the chord's downward-facing open mouth. Web has TrussChamfers at both ends. The chord's lips are notched over the entry width and a screw fastens the joint per FrameCAD FC-R3 (left-side single-screw variant).",
     sticks: [
-      // Truss web — vertical, 600mm. Top end at world Y=598 (just below
-      // chord's web inner face at Y≈599.25).
+      // Truss web — vertical, top end at world Y=598 (just below chord's
+      // web inner face at Y≈599.25). Top 50mm swaged so web's profile
+      // fits inside chord's interior cavity.
       {
         profile: PROFILE_70S41,
         length: 598,
@@ -389,6 +395,8 @@ export const INTERACTIONS: InteractionConfig[] = [
         ops: [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
+          { type: "Swage", spanStart: 548, spanEnd: 598 },
+          { type: "InnerDimple", pos: 578 },
         ],
       },
       // Chord — horizontal, mouth opens DOWNWARD so the web tip nests
@@ -412,7 +420,7 @@ export const INTERACTIONS: InteractionConfig[] = [
     ],
     joints: [
       {
-        // Joint centre — at the web's tip
+        // Joint centre — at the web's tip inside the chord cavity
         position: [0, 580, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
@@ -421,6 +429,8 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "web-to-top-chord",
       },
     ],
+    cameraTarget: [0, 590, 0],
+    cameraDistance: 360,
   },
 
   // ──────────────────────────────────────────────────────────────────
@@ -445,6 +455,8 @@ export const INTERACTIONS: InteractionConfig[] = [
         ops: [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
+          { type: "Swage", spanStart: 548, spanEnd: 598 },
+          { type: "InnerDimple", pos: 578 },
         ],
       },
       {
@@ -477,6 +489,8 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "reinforced web-to-top-chord",
       },
     ],
+    cameraTarget: [0, 590, 0],
+    cameraDistance: 380,
   },
 
   // ──────────────────────────────────────────────────────────────────
@@ -582,6 +596,8 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "wall-brace-to-plate",
       },
     ],
+    cameraTarget: [880, 1550, 0],
+    cameraDistance: 420,
   },
 
   // ──────────────────────────────────────────────────────────────────
