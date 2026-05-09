@@ -327,9 +327,13 @@ export default function Hd1Page() {
             XML → RFY + CSV + PDF — frozen 2026-05-09
           </p>
           <p className="text-zinc-500 text-sm mt-1">
-            Drop one or more FrameCAD <code className="text-[#FFCB05]">framecad_import</code> XMLs
+            Drop one or more HYTEK <code className="text-[#FFCB05]">framecad_import</code> XMLs
             → get the rollformer <code>.rfy</code>, the per-plan <code>.csv</code>, and a printable
             elevation <code>.pdf</code>. Bundle them all as a ZIP for one-click handoff.
+            <span className="block text-zinc-600 mt-1">
+              (the <code>framecad_import</code> tag is the XML schema's element name —
+              kept as-is since renaming it would break input parsing)
+            </span>
           </p>
         </header>
 
@@ -362,7 +366,7 @@ export default function Hd1Page() {
             }}
           />
           <div className="text-lg sm:text-xl font-semibold text-zinc-200">
-            Drop FrameCAD XML files here
+            Drop HYTEK XML files here
           </div>
           <div className="text-sm text-zinc-400 mt-2" style={{ fontSize: 16 }}>
             or tap to choose · multiple files OK

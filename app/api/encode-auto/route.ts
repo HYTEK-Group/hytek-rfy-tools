@@ -160,8 +160,8 @@ export async function POST(req: Request) {
       } else {
         throw new Error(
           "XML root is not <schedule> or <framecad_import>. " +
-          "Expected either the inner FrameCAD schedule XML (from 'RFY → Plain Text + XML') " +
-          "or a FrameCAD CNC import XML."
+          "Expected either the inner HYTEK schedule XML (from 'RFY → Plain Text + XML') " +
+          "or a HYTEK CNC import XML."
         );
       }
     } else {

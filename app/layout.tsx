@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "HYTEK RFY Tools",
-  description: "Convert FrameCAD RFY ↔ XML and CSV. By HYTEK Framing.",
+  description: "Convert HYTEK RFY ↔ XML and CSV. By HYTEK Framing.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

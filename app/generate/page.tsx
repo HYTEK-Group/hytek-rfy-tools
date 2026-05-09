@@ -99,7 +99,7 @@ export default function GeneratePage() {
           </a>
         </div>
         <p className="text-zinc-400 mt-1">
-          FrameCAD <code className="text-yellow-400">.xml</code> → Manufacturing PDF (one page per frame).
+          HYTEK <code className="text-yellow-400">.xml</code> → Manufacturing PDF (one page per frame).
           Replaces Detailer's PDF export.
         </p>
       </header>
@@ -167,7 +167,7 @@ export default function GeneratePage() {
         ) : (
           <>
             <p className="text-yellow-400 font-medium text-lg mb-2">
-              Drop your FrameCAD .xml here
+              Drop your HYTEK .xml here
             </p>
             <p className="text-zinc-500 text-sm">
               Accepts <code className="text-yellow-400">&lt;framecad_import&gt;</code> or

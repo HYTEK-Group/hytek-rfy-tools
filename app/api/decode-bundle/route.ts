@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       } else if (head.startsWith("# HYTEK") || head.startsWith("#")) {
         hint = `\nThis looks like the .txt plain-text export. Use "Plain Text or XML → RFY" to re-encode it.`;
       } else {
-        hint = `\nNot a valid FrameCAD RFY file. Make sure you're uploading an .rfy that came directly from Detailer, or one this app produced after the codec was last fixed.`;
+        hint = `\nNot a valid HYTEK RFY file. Make sure you're uploading an .rfy that came directly from Detailer, or one this app produced after the codec was last fixed.`;
       }
       throw new Error(
         `Invalid RFY length: got ${buf.length} bytes. ` +
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
       `HYTEK RFY Tools — decoded bundle\n` +
       `=================================\n\n` +
       `${baseName}.txt   Plain-text rollformer CSV — easiest to edit in Notepad.\n` +
-      `${baseName}.xml   Full FrameCAD XML schedule — also opens in Notepad.\n\n` +
+      `${baseName}.xml   Full HYTEK XML schedule — also opens in Notepad.\n\n` +
       `Edit either file then re-upload via "Plain Text or XML → RFY".\n` +
       `The app auto-detects the format by content.\n`,
     );

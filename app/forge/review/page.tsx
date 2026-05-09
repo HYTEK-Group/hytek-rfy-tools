@@ -103,7 +103,7 @@ export default function ForgeReviewPage() {
       <header className="mb-6">
         <h1 className="text-2xl font-bold text-yellow-400">Forge — Operator Review</h1>
         <p className="text-sm text-zinc-400 mt-1">
-          Drop a FrameCAD <code>&lt;framecad_import&gt;</code> XML. The codec runs and
+          Drop a HYTEK <code>&lt;framecad_import&gt;</code> XML. The codec runs and
           each stick is scored against the 66,262-record historical corpus.
           Red sticks deviate ≥2σ from typical or are missing common op types —
           review these manually before sending the RFY to the rollformer.

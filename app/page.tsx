@@ -6,7 +6,7 @@ type Mode = "encode-bundle" | "decode-bundle" | "encode-auto" | "rfy-to-csv" | "
 
 const MODE_LABELS: Record<Mode, { title: string; subtitle: string; from: string; accept: string; endpoint: string }> = {
   "encode-bundle": {
-    title: "FrameCAD XML → Production Bundle",
+    title: "HYTEK XML → Production Bundle",
     subtitle: "Upload <framecad_import>.xml → ZIP with the .rfy + per-plan .csv files. The full Detailer-replacement output.",
     from: ".xml",
     accept: ".xml",
@@ -41,7 +41,7 @@ const MODE_LABELS: Record<Mode, { title: string; subtitle: string; from: string;
     endpoint: "/api/rfy-from-csv",
   },
   "forge-encode": {
-    title: "FrameCAD XML → RFY (via Detailer)",
+    title: "HYTEK XML → RFY (via Detailer)",
     subtitle: "Forge mode: cache hit returns Detailer-bit-exact bytes instantly; cache miss spawns Detailer locally (~50s). Local-only — needs Python + Detailer + license.",
     from: ".xml",
     accept: ".xml",
@@ -199,7 +199,7 @@ export default function Page() {
           </div>
         </div>
         <p className="text-zinc-400 mt-1">
-          Decode, edit, and re-encode FrameCAD <code className="text-yellow-400">.rfy</code> files.
+          Decode, edit, and re-encode HYTEK <code className="text-yellow-400">.rfy</code> files.
         </p>
         <p className="text-zinc-500 text-sm mt-3">
           <strong className="text-zinc-300">Standard workflow:</strong>{" "}
@@ -238,7 +238,7 @@ export default function Page() {
       >
         <h4 className="text-lg font-semibold text-yellow-400 mb-1">/forge/review — confidence-flagged review</h4>
         <p className="text-sm text-zinc-400">
-          Drop a FrameCAD <code>.xml</code>; the codec runs and each stick is
+          Drop a HYTEK <code>.xml</code>; the codec runs and each stick is
           scored against 66,262 historical Detailer-stamped sticks. Red rows
           deviate ≥2σ from typical or are missing common op types — review
           these before sending the RFY to the rollformer.
@@ -257,7 +257,7 @@ export default function Page() {
             CSV with helpful headers/comments. Easiest in Notepad. Round-trip strips graphics/3D.
           </li>
           <li>
-            <strong className="text-yellow-400">.xml</strong> — full FrameCAD schedule with everything
+            <strong className="text-yellow-400">.xml</strong> — full HYTEK schedule with everything
             (3D mesh, design GUIDs). Edit when fidelity matters. Re-encrypted byte-for-byte back to RFY.
           </li>
           <li>
