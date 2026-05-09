@@ -59,16 +59,32 @@ export function Stick3DOps({ config }: Stick3DOpsProps) {
 
   const overlays = useMemo(() => buildOverlayMeshes(profile, ops, length), [profile, ops, length]);
 
+  // Edge geometry — gives a thin black outline on every sharp edge of
+  // the stick, making the C-section profile + cut boundaries readable
+  // at any zoom level. Without this, the steel reads as a shaded blob.
+  const edgesGeometry = useMemo(() => {
+    return new THREE.EdgesGeometry(stickGeometry, 30); // 30° threshold
+  }, [stickGeometry]);
+
   return (
     <group position={position} rotation={rotation}>
-      {/* Stick mesh — geometry is already pre-mirrored if flipped. */}
+      {/* Stick mesh — geometry is already pre-mirrored if flipped.
+          Slightly brighter tone (#c8c8cc instead of #a8a8b0) and a touch
+          less metalness so the steel shows up clearly under the gallery
+          lighting and reads as worked galv steel rather than chrome. */}
       <mesh geometry={stickGeometry} castShadow receiveShadow>
         <meshStandardMaterial
-          color={config.tint ?? "#a8a8b0"}
-          metalness={0.7}
-          roughness={0.4}
+          color={config.tint ?? "#c0c0c8"}
+          metalness={0.55}
+          roughness={0.45}
         />
       </mesh>
+      {/* Edge outlines — thin dark lines over every detected sharp edge.
+          Makes the C-section profile + LipNotch / Swage / InnerNotch
+          boundaries visible from any angle. */}
+      <lineSegments geometry={edgesGeometry}>
+        <lineBasicMaterial color="#202024" linewidth={1} />
+      </lineSegments>
       {/* Overlays — wrapped in a group with scale flip for flipped sticks
           so overlay positions (e.g. innerWebX) move to the mirrored side. */}
       <group scale={flipped ? [-1, 1, 1] : [1, 1, 1]}>
