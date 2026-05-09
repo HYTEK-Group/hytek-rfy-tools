@@ -158,6 +158,10 @@ function buildOverlayMeshes(
 
       case "Chamfer":
       case "TrussChamfer": {
+        // Chamfer wedge: a small dark filled-in volume sitting in the
+        // corner where the stick's lip meets its end face. Rendered as
+        // VERY DARK steel (almost black) so it reads as "this corner is
+        // cut away" rather than as added geometry.
         const z = op.end === "start" ? 0 : length;
         const wedgeGeom = buildChamferWedge(
           profile as never,
@@ -168,9 +172,10 @@ function buildOverlayMeshes(
         elements.push(
           <mesh key={key} geometry={wedgeGeom} castShadow receiveShadow>
             <meshStandardMaterial
-              color="#1a1a1a"
-              metalness={0.3}
-              roughness={0.9}
+              color="#0d0d0d"
+              metalness={0.2}
+              roughness={0.95}
+              emissive="#000000"
             />
           </mesh>,
         );

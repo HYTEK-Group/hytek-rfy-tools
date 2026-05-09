@@ -93,15 +93,15 @@ export const INTERACTIONS: InteractionConfig[] = [
   },
 
   // ──────────────────────────────────────────────────────────────────
-  // A2 — T-junction (angled, 60° from vertical)
+  // A2 — T-junction (angled, 60° from vertical = 30° from horizontal)
   // ──────────────────────────────────────────────────────────────────
   {
     id: "A2",
     name: "A2 — T-junction (angled, 60°)",
     description:
-      "An angled brace meeting a horizontal plate at 60° from vertical. The brace gets a Chamfer at its end (so it sits flush on the plate) plus an elongated Swage end-cap and InnerDimple. The plate gets the same LipNotch + InnerDimple as the orthogonal case.",
+      "An angled brace meeting a horizontal plate at 60° from vertical (30° from horizontal). The brace gets a Chamfer at its end (so it sits flush on the plate) plus an elongated Swage end-cap and InnerDimple. The plate gets the same LipNotch + InnerDimple as the orthogonal case.",
     sticks: [
-      // Brace — at 60° from vertical (= 30° from horizontal)
+      // Brace at 30° from horizontal, 1500mm. Tip lands at (1299, 750).
       {
         profile: PROFILE_70S41,
         length: 1500,
@@ -114,21 +114,22 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 1480 },
         ],
       },
-      // Plate — horizontal, runs along +X starting from -300
+      // Plate at y=1299*tan30° + brace_tip_y. Position the plate so its
+      // centerline passes through the brace's tip (1299, 750).
       {
         profile: PROFILE_70S41,
-        length: 2200,
-        position: [-300, 1300, 0],
+        length: 2400,
+        position: [-100, 750, 0],
         rotation: ROT_HORIZONTAL_X,
         label: "Plate",
         ops: [
           {
             type: "LipNotch",
-            spanStart: 1280,
-            spanEnd: 1330,
+            spanStart: 1379,
+            spanEnd: 1419,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1305 },
+          { type: "InnerDimple", pos: 1399 },
         ],
       },
     ],
@@ -241,7 +242,7 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 980 },
         ],
       },
-      // Chord — horizontal, sits across the top
+      // Chord — horizontal, sits across the top of the web's tip
       {
         profile: PROFILE_70S41,
         length: 2500,
@@ -249,13 +250,14 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: ROT_HORIZONTAL_X,
         label: "Chord",
         ops: [
+          // Tip lands at world (707, 707) → chord position 707 + 500 = 1207
           {
             type: "LipNotch",
             spanStart: 1180,
             spanEnd: 1240,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1210 },
+          { type: "InnerDimple", pos: 1207 },
         ],
       },
     ],
@@ -389,15 +391,15 @@ export const INTERACTIONS: InteractionConfig[] = [
     id: "D2",
     name: "D2 — B2B partner pair (back-to-back, flange-on-flange)",
     description:
-      "Two studs paired flange-on-flange — webs facing OUT, lips touching down the centreline. The flange directions of the two sticks are MIRRORED (one default, one flipped). Both sticks get the same Web-hole pattern: 7 holes at 447mm spacing, anchored 38mm from each end, for the through-bolts that connect the pair. This is the signature 'partner pair' construction.",
+      "Two studs paired flange-on-flange — lips touching down the centreline, webs facing OUT to opposite sides. The flange directions of the two sticks are MIRRORED (one default, one flipped). Both sticks get the same Web-hole pattern: 7 holes at 447mm spacing, anchored 38mm from each end, for the through-bolts that connect the pair. This is the signature 'partner pair' construction.",
     sticks: [
-      // Stud A — webs facing -Z (default flangeDir), positioned at z = -45
+      // Stud A — web back at x=-41, flanges extending toward x=0 (lip at x=29)
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [0, 0, -45],
+        position: [-43, 0, 0], // 41 (flange depth) + 2mm gap
         rotation: ROT_VERTICAL_Y,
-        label: "Stud A (front)",
+        label: "Stud A (web facing -X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -408,14 +410,14 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Web", pos: 2700 - 38, diameter: 8 },
         ],
       },
-      // Stud B — flange direction flipped, positioned at z = +45
+      // Stud B — flange flipped so its web is at x=+43, flanges extending toward x=0
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [0, 0, 45],
+        position: [43, 0, 0],
         rotation: ROT_VERTICAL_Y,
         flangeDir: "flipped",
-        label: "Stud B (back)",
+        label: "Stud B (web facing +X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -436,15 +438,15 @@ export const INTERACTIONS: InteractionConfig[] = [
     id: "D3",
     name: "D3 — Side-by-side double stud (web-on-web)",
     description:
-      "The other 'double stud' configuration — webs touching, flanges OUT to opposite sides. Same 7-hole web pattern as D2 but the visual layout is dramatically different: the bolt line is on the shared web seam rather than between the inner faces of two opposing C-sections.",
+      "The other 'double stud' configuration — webs TOUCHING in the centre, flanges OUT to opposite sides. Same 7-hole web pattern as D2 but the visual layout is dramatically different: the through-bolts pass through both webs at once, and the two C-sections form a closed-tube cross-section.",
     sticks: [
-      // Stud A — web back at x=0, normal orientation
+      // Stud A — web back at x=0, flanges extending +X
       {
         profile: PROFILE_70S41,
         length: 2700,
         position: [0, 0, 0],
         rotation: ROT_VERTICAL_Y,
-        label: "Stud A (left flange-out)",
+        label: "Stud A (flanges +X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -455,15 +457,14 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Web", pos: 2700 - 38, diameter: 8 },
         ],
       },
-      // Stud B — web back at x=0 too but flipped flange so flanges open the OTHER way
-      // Their webs touch at x=0 (z = some offset to avoid coplanar mesh)
+      // Stud B — flipped so flanges extend -X, web back at x=-1.5 (small offset to avoid z-fighting)
       {
         profile: PROFILE_70S41,
         length: 2700,
         position: [-1.5, 0, 0],
         rotation: ROT_VERTICAL_Y,
         flangeDir: "flipped",
-        label: "Stud B (right flange-out)",
+        label: "Stud B (flanges -X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
