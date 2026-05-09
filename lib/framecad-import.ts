@@ -69,6 +69,11 @@ interface RawFrame {
    *  (`simplifyWallServiceInProject`) to emit dynamic InnerService ops on
    *  vertical wall studs. Empty when the frame has no Service tool_actions. */
   serviceActions: ServiceAction[];
+  /** Parsed `<line layer="0">` elements — strap-brace diagonals + anchor
+   *  marks that appear in elevation but aren't structural sticks. Detailer
+   *  draws these as construction lines crossing the wall (the X-pattern
+   *  Scott pointed at on HG260002 frame N9, "Strap Brace - Near side"). */
+  diagonalLines: { start: Vec3; end: Vec3 }[];
 }
 
 interface RawPlan {
@@ -126,7 +131,7 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
     attributeNamePrefix: "@_",
     parseAttributeValue: true,
     parseTagValue: false,
-    isArray: (name) => ["plan", "frame", "stick", "vertex", "tool_action"].includes(name),
+    isArray: (name) => ["plan", "frame", "stick", "vertex", "tool_action", "line"].includes(name),
   });
   const doc = parser.parse(xmlText);
   const root = doc.framecad_import;
@@ -199,12 +204,31 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         });
       }
 
+      // Parse <line layer="0"> elements. These are construction lines drawn
+      // in the elevation — typically strap-brace diagonals and their anchor
+      // marks at the corners. Frame N9 in HG260002 NLBW has 12 of these
+      // forming the X-pattern Scott pointed at (Detailer titles the page
+      // "Strap Brace - Near side"). Most frames have zero.
+      const diagonalLines: { start: Vec3; end: Vec3 }[] = [];
+      for (const ln of (frameNode.line ?? []) as Array<{
+        "@_layer"?: string | number;
+        start?: string | { "#text"?: string };
+        end?: string | { "#text"?: string };
+      }>) {
+        // Only render layer=0 lines (Detailer's elevation construction layer).
+        if (String(ln["@_layer"] ?? "") !== "0") continue;
+        const startText = typeof ln.start === "string" ? ln.start : ln.start?.["#text"] ?? "0,0,0";
+        const endText = typeof ln.end === "string" ? ln.end : ln.end?.["#text"] ?? "0,0,0";
+        diagonalLines.push({ start: parseTriple(startText), end: parseTriple(endText) });
+      }
+
       const frame: RawFrame = {
         name: String(frameNode["@_name"] ?? "F1"),
         type: String(frameNode["@_type"] ?? ""),
         envelope,
         sticks: [],
         serviceActions,
+        diagonalLines,
       };
       // Frame z range — used to detect plate-end vs stud-end of Kb braces.
       const envZs = envelopeRaw.map(v => v.z);
@@ -730,6 +754,9 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
   client: string;
   date: string;
   frameTypes: Map<string, string>;
+  /** frameName → projected diagonal lines (strap braces + anchor marks)
+   *  in elevation-mm coords, ready to render alongside sticks. */
+  frameDiagonals: Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]>;
 } {
   const project = framecadImportToParsedProject(xmlText);
   // Default to lenient=true: roof panels (RP) and other non-rectangular envelopes
@@ -743,11 +770,26 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
   // renderer can pick presentation style by actual frame type, not by
   // brittle plan-name regex. parsePlans already extracted this; we just
   // re-walk it here (cheap — no second XML parse).
+  //
+  // Also project each frame's <line layer="0"> diagonals (strap braces +
+  // anchor marks) from world-3D into the frame's local elevation plane,
+  // so the PDF renderer can draw them in the same coordinate space as
+  // the stick outlineCorners.
   const { plans: rawPlans } = parsePlans(xmlText);
   const frameTypes = new Map<string, string>();
+  const frameDiagonals = new Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]>();
   for (const plan of rawPlans) {
     for (const frame of plan.frames) {
       if (frame.type) frameTypes.set(frame.name, frame.type);
+      if (!frame.diagonalLines.length || !frame.envelope) continue;
+      let basis: FrameBasis | null = null;
+      try { basis = deriveFrameBasis(frame.envelope, true); } catch { /* skip — same fallback as sticks */ }
+      if (!basis) continue;
+      const projected = frame.diagonalLines.map(ln => ({
+        start: projectToFrameLocal(ln.start, basis!),
+        end: projectToFrameLocal(ln.end, basis!),
+      }));
+      frameDiagonals.set(frame.name, projected);
     }
   }
 
@@ -760,6 +802,7 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
     projectName: project.name,
     jobnum: project.jobNum,
     frameTypes,
+    frameDiagonals,
     client: project.client,
     date: project.date,
   };

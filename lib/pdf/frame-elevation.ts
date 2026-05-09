@@ -78,6 +78,15 @@ export interface PdfOptions {
    * XML in framecadImportToRfy and threads it here.
    */
   frameTypes?: Map<string, string>;
+  /**
+   * Optional frameName → diagonal lines map. Lines are in elevation-mm
+   * coords (already projected to the frame's local plane by HD1's
+   * framecad-import). Source: `<line layer="0">` elements in the framecad
+   * XML — strap-brace diagonals + anchor marks (the X-pattern Detailer
+   * draws on bracing pages). Most frames have zero entries; bracing frames
+   * carry ~12 lines each.
+   */
+  frameDiagonals?: Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]>;
 }
 
 /**
@@ -94,6 +103,7 @@ export async function generateFramePdf(
     showDimensions: options.showDimensions ?? true,
     showToolingMarks: options.showToolingMarks ?? true,
     frameTypes: options.frameTypes ?? new Map(),
+    frameDiagonals: options.frameDiagonals ?? new Map(),
   };
 
   const pdf = await PDFDocument.create();
@@ -492,6 +502,15 @@ function drawFramePage(
     drawStick(page, stick, layout, font, opts, wallStyle, webOverrides);
   }
 
+  // Diagonal lines from source XML (<line layer="0">) — strap braces +
+  // anchor marks. Drawn after sticks so they overlay (Detailer's
+  // convention; the X-pattern is meant to read across the wall surface,
+  // not be hidden behind plate fills).
+  const diagonals = opts.frameDiagonals.get(frame.name);
+  if (diagonals && diagonals.length > 0) {
+    drawDiagonalLines(page, diagonals, layout);
+  }
+
   // Dimension lines (simple — overall width + height of bbox).
   if (opts.showDimensions) {
     drawOverallDimensions(page, bb, layout, font);
@@ -859,6 +878,37 @@ function drawMarker(
     }
     default:
       page.drawCircle({ x: pt.x, y: pt.y, size: r, color, borderWidth: 0 });
+  }
+}
+
+/**
+ * Render <line layer="0"> diagonals — strap braces + anchor marks pulled
+ * from the source framecad_import XML. Drawn in elevation-mm coords (lines
+ * have already been projected to the frame's local plane by HD1's
+ * framecad-import).
+ *
+ * Detailer's convention (visible on HG260002 NLBW page 9, frame N9):
+ *   - Strap-brace diagonals form an X across the panel (typically 4 lines:
+ *     2 long diagonals + 2 short anchor marks at each corner).
+ *   - All drawn in solid black at hairline weight — NOT dashed, NOT coloured.
+ *   - Overlay the sticks (drawn last so they appear on top of plate fills).
+ *
+ * We render them at 0.6pt black so they're visible without overpowering
+ * the structural members.
+ */
+function drawDiagonalLines(
+  page: PDFPage,
+  lines: { start: { x: number; y: number }; end: { x: number; y: number } }[],
+  layout: PageLayout,
+): void {
+  const { s, ox, oy } = layout;
+  for (const ln of lines) {
+    page.drawLine({
+      start: { x: ox + ln.start.x * s, y: oy + ln.start.y * s },
+      end: { x: ox + ln.end.x * s, y: oy + ln.end.y * s },
+      thickness: 0.6,
+      color: rgb(0, 0, 0),
+    });
   }
 }
 
