@@ -29,7 +29,7 @@ Two diagnostic insights forced the pivot:
 
 Putting (1.1) and (1.2) together: the right target is **"correct steel"**, not **"matching Detailer bytes"**. The former has a knowable answer. The latter does not.
 
-**1.3 Tom's parallel project validates the methodology.** A separate HYTEK CSV reverse-engineering project (Tom, May 2026, see his handover doc) achieved **byte-level diff exit 0** against a real production CSV by deriving values from PDF rules rather than mimicking Framecad's output. He proved the rule-derivation methodology yields correct files. Our problem is wider (arbitrary frames, three output formats) but the methodology transfers directly.
+**1.3 Rule-derivation methodology has been independently validated.** A separate HYTEK reverse-engineering effort (different project, different scope) produced a generated output that matched its production target byte-for-byte once the rules were derived from first principles rather than copied from the source tool. That's empirical proof rule-derivation can yield correct files when the target is correctness, not parity.
 
 **1.4 The Detailer EOL deadline (2026-05-15) becomes irrelevant.** If our brain is the source of truth, the date Detailer dies stops mattering. We are no longer dependent on Detailer producing comparison output.
 
@@ -71,7 +71,7 @@ FrameCAD XML
     ↓
 [4] Three emitters in parallel
         ├─ RFY emitter  →  encrypted machine file (existing codec back-end)
-        ├─ CSV emitter  →  rollformer CSV (Tom-style format, see §9.2)
+        ├─ CSV emitter  →  rollformer per-plan CSV (see §10.2)
         └─ PDF emitter  →  drawing set with operations marked per stick
 ```
 
@@ -124,8 +124,8 @@ Interaction {
 
 ```
 FrameContext {
-    pattern         # one of 9 (§8) — door, window, AC, brace bay, B2B pair,
-                    #                  TIN truss, TB2B truss, roof panel, riser
+    pattern         # one of 8 (§8) — door, window, AC, brace bay, B2B pair,
+                    #                  TIN truss, TB2B truss, roof panel
     members         # the sticks that make up this pattern
     operations      # per-member op lists this pattern triggers
 }
@@ -213,9 +213,9 @@ Below, each operation gets the plain-English rule for **when it fires**. Paramet
 - **Why:** every fastener position needs a dimple to locate the screw before it cuts.
 
 #### Swage
-- **End cap, every stud (S/J):** fires at 27.5mm from each end on full-height studs, span = 39mm (70/89mm).
+- **End cap, every stud (S/J):** fires at the stud's end with the setup-derived offset (27.5mm on standard 70/89mm setups), span = 39mm.
 - **End cap, every nog ≥168mm:** fires at each end with the same offset as studs.
-- **Mid-span, full-height studs:** fires at 1221mm (mid-span on 2442mm wall studs) — replaces the InnerDimple at mid-span on standard studs. Note: ENDSTUD has LipNotch here instead of Swage.
+- **Mid-span, full-height studs:** fires at the stud's mid-span — replaces the InnerDimple at mid-span on standard studs. Note: ENDSTUD (end-of-panel) has LipNotch here instead of Swage.
 - **End cap, every brace (W/R) "stud" usage:** angle-dependent end span = `Span / cos(angle from vertical) + 8 · tan²(angle)`. Capped at 200mm.
 - **NOT on:** plates (LipNotch + InnerDimple is the plate end-cap pattern), truss webs (Chamfer + Swage 41 + Dimple 10 is the wall-W pattern; truss-W gets Swage 39 + Dimple 16.5).
 - **Why:** stud webs need stiffening at the ends to resist crushing under the plate's bearing.
@@ -228,7 +228,6 @@ Below, each operation gets the plain-English rule for **when it fires**. Paramet
 
 #### Bolt
 - **Bottom plate, ground floor only:** fires at ±62mm offsets from each `Web`-anchored point, two holes per cluster. Slab anchors.
-- **Riser studs (1.15g):** fires at 13.5mm / 30.5mm / 47.5mm from end (cluster of 3) — Tom's territory; these are the riser-leg slab fasteners.
 - **NOT on:** any wall stud, plate above ground floor, header, or truss member.
 - **Why:** these are the actual hold-down fasteners that secure the frame to the slab.
 
@@ -253,7 +252,6 @@ Below, each operation gets the plain-English rule for **when it fires**. Paramet
 
 #### InnerService
 - **Full-height wall studs (S):** fires at 296mm and 446mm from one end (electrical conduit positions). Dynamic: which end is "service end" depends on wall layout — set per-stud by `simplify-wall-service.ts` rule.
-- **Roof studs (1.15mm, 2987mm):** fires in groups of 3 at every ~748mm interval (riser attachment points).
 - **NOT on:** plates, headers, nogs, truss members.
 - **Why:** electrical and plumbing penetrations need predictable, code-compliant openings.
 
@@ -441,8 +439,6 @@ The finite set of geometric configurations in which two HYTEK steel sticks can m
 
 Higher-level patterns that group multiple sticks into a recognisable assembly. When the brain sees a frame context, it generates the canonical member set with the canonical operations.
 
-This section is Tom's §10 generalised across all HYTEK frame types, plus our additions for trusses and risers.
-
 ### 8.1 Door opening
 
 ```
@@ -558,23 +554,8 @@ This section is Tom's §10 generalised across all HYTEK frame types, plus our ad
 **Operations:**
 - Top/bottom plates get `Chamfer + InnerDimple @10` instead of standard Swage at end caps (the RP-specific rule).
 - Studs get `LipNotch 56..101 + InnerDimple @78.5` at end caps.
-- Bolt-hole groups on bottom plate at riser attachment points (3 per riser).
 
 **Note:** pitched roofs are unverified — see §13.2.
-
-### 8.9 Riser frame (Tom's §8 territory)
-
-**Trigger:** plan name contains `-RI-` or member IDs in the `Ri1_n` pattern.
-
-**Members generated:**
-- 5–6 riser studs (1.15g profile).
-- Top plate (inner risers Ri1_2–Ri1_5 only).
-- No top plate on end risers (Ri1_1, Ri1_6).
-
-**Operations:**
-- Riser studs: `Bolt @13.5 + @30.5 + @47.5` cluster at each end.
-- Inner risers also get a Swage near top.
-- Top plate notch positions are fixed constants: 703.8 / 1452.5 / 2201.3 (do not derive — see §11.2).
 
 ---
 
@@ -607,7 +588,7 @@ Edit any rule, and the brain re-runs the next encode with the new behaviour.
 
 ### 9.3 Tab 3 — Frame Contexts
 
-Lists all 9 frame contexts. For each, shows:
+Lists all 8 frame contexts. For each, shows:
 - Name + a sample frame thumbnail.
 - Trigger conditions (plan-name pattern, member-set check, opening dimensions).
 - Members generated.
@@ -639,9 +620,9 @@ Filename: `<jobref>_<plan>.rfy`.
 
 ### 10.2 CSV (rollformer CSV)
 
-The same machine sees a CSV alongside the RFY in the production pipeline. Format follows Tom's spec exactly — three split files per modular building (walls / roof / risers), DETAILS+COMPONENT row pattern, fixed field schema (see Tom's §2). The brain emits CSVs for non-modular jobs as well using the same row schema.
+The rollformer also reads a per-plan CSV alongside the RFY. The existing codec already emits these. Format is FrameCAD's standard: one CSV per plan, DETAILS row + one COMPONENT row per stick with its profile, length, position, and the operation list.
 
-Filename: `<jobref>_<frame-category>_<gauge>.csv`.
+Filename: `<jobnum>#1-1_<plan>.csv` (matches the existing codec).
 
 ### 10.3 PDF (drawing set)
 
@@ -655,7 +636,7 @@ PDF generator: TBD (likely server-side via a headless renderer of the existing `
 
 ## 11. Validation methodology
 
-Tom's diff-and-fix codified, with the Forge cache repurposed.
+Diff-and-fix, with the Forge cache repurposed.
 
 ### 11.1 The validation loop
 
@@ -683,7 +664,7 @@ Critically: when (c) is found, the cache entry is annotated as "human-edited" so
 
 ### 11.3 Empirical proof we can hit exit code 0
 
-Tom's HM250103 byte-level match proves the methodology. Our existing codec already hits ~95% on some plan types (wall LBW 89mm 0.95g) — that's close enough to byte-exact that the gap is one or two specific rules, not a fundamental misalignment.
+Our existing codec already gets close to byte-exact on some plan types — close enough that the remaining gap is a small number of specific rules, not a fundamental misalignment. The brain's job is to close those gaps cleanly via the catalogues, not to chase Detailer's hand-edited outputs.
 
 ### 11.4 Diagnostic patterns we already know
 
@@ -704,13 +685,9 @@ These have been investigated, ruled out, and must not be re-introduced without o
 
 1. **Don't try to match Detailer byte-for-byte across all jobs.** The 13-session plateau is structural. Cached files contain human edits.
 2. **Don't reintroduce `simplify-rp.ts` as a global default.** A/B test 2026-05-06 showed -0.8pp net on overall match (over-emits 292 spurious Chamfers + mis-positions 376 ops on HG260043). Currently disabled by `CODEC_DISABLE_RP=1` env var.
-3. **Don't derive top-plate notch positions from stud X-positions** on risers. Tom's project proved they're hardcoded constants (703.8 / 1452.5 / 2201.3). Looks derivable, isn't.
-4. **Don't reintroduce the `St5 +1mm` asymmetry rule.** Tom tested across multiple sets, disproved.
-5. **Don't copy riser heights from a similar/recent job to a new job.** Tom: "the riser CSV is the most sensitive component." Always derive from the current job's PDF.
-6. **Don't trust Python's default float-to-string formatting.** Whole-number floats need trailing `.0` stripped before write — Tom's §2.3 helper.
-7. **Don't bleed simplifiers across plan types.** Each simplifier (TIN / RP / TB2B / wall-service / linear-truss) must check plan name and no-op if the plan isn't its target. Verified test exists (`scripts/ab-test-simplifiers.test.ts`).
-8. **Don't add new Detailer-parity work** when the diff is HUMAN EDIT class. Record it, move on. Use the human-edit register.
-9. **Don't merge frame-context crossing logic with per-stick rules.** They are two distinct passes; merging them creates double-emission bugs (verified empirically).
+3. **Don't bleed simplifiers across plan types.** Each simplifier (TIN / RP / TB2B / wall-service / linear-truss) must check plan name and no-op if the plan isn't its target. Verified test exists (`scripts/ab-test-simplifiers.test.ts`).
+4. **Don't add new Detailer-parity work** when the diff is HUMAN EDIT class. Record it, move on. Use the human-edit register.
+5. **Don't merge frame-context crossing logic with per-stick rules.** They are two distinct passes; merging them creates double-emission bugs (verified empirically).
 
 This list grows. Every disproven hypothesis adds an entry.
 
@@ -776,14 +753,10 @@ After Phase 5, fill in the 75/78/90/104mm profile columns of the catalogues. Eac
 Things only Scott can decide. Each gets a § in the next iteration.
 
 1. **Profile expansion priority.** After 70mm + 89mm, which goes first — 75mm, 78mm, 90mm Perth, 104mm? Driven by upcoming job mix.
-2. **Pitched roofs.** All RP frames seen so far are 0° flat. Behaviour for pitched roofs is unverified. The 2987mm roof stud cut may change.
-3. **End riser height formula.** Currently job-specific (101 / 103 / 107mm seen). Tom hypothesised it tracks roof assembly height. Worth investigating whether a client PDF dimension predicts it.
-4. **Riser bolt-hole positions.** Currently per-job lookup. Same investigation as (3).
-5. **Wall stud gauge.** All sets seen are 0.95mm wall. Confirm whether 1.15mm wall is ever produced.
-6. **PDF format.** What does the drawing-set PDF need to look like? Layered like a Detailer drawing? Simpler? Tabular operation list per stick?
-7. **Settings UI deployment.** Local-only (work-PC + home-PC), or hosted on Vercel for any device? Settings edits are sensitive — local-only is safer initially.
-8. **Human-edit register.** Where does it live? A separate JSON in the brain config, or annotated alongside the cache entry?
-9. **Profile family granularity.** Tom's project sees 89S41_0.95 (walls) vs 89S41_1.15 (roof/risers). Should our catalogue distinguish gauge as a first-class axis or treat gauge as a parameter inside profile-family?
+2. **PDF drawing format.** What does the drawing-set PDF need to look like? Layered like a Detailer drawing? Simpler? Tabular operation list per stick?
+3. **Settings UI deployment.** Local-only (work-PC + home-PC), or hosted on Vercel for any device? Rule edits go straight into production — local-only is safer initially.
+4. **Human-edit register.** Where does it live? A separate JSON in the brain config, or annotated alongside the cache entry?
+5. **Gauge as a first-class axis.** Should the catalogue treat gauge (0.55 / 0.75 / 0.95 / 1.15mm) as a separate dimension alongside profile family, or fold it into profile-family as a parameter? Affects how rules are organised in the settings UI.
 
 ---
 
