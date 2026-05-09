@@ -9,7 +9,7 @@
 // codec (no Detailer CSV in the cache). PDF uses Agent 2's renderer when
 // available, falls back to a placeholder.
 import { NextResponse } from "next/server";
-import { decodeXml, documentToCsvs } from "@hytek/rfy-codec";
+import { decodeXml, generateHowickCsv } from "@hytek/rfy-codec";
 import JSZip from "jszip";
 import { framecadImportToRfy } from "@/lib/framecad-import";
 import { readBodyText } from "@/lib/read-body";
@@ -30,11 +30,13 @@ export async function POST(req: Request) {
       throw new Error("Expected <framecad_import> XML at the top level.");
     }
 
-    // 1. Codec pipeline (always — needed for CSVs even on oracle hit).
+    // 1. Codec pipeline (always — needed for CSV even on oracle hit).
     const result = framecadImportToRfy(xml);
     if (result.stickCount === 0) throw new Error("No sticks found in <framecad_import> document.");
     const doc = decodeXml(result.xml);
-    const csvs = documentToCsvs(doc);
+    // Howick CSV: single document-wide CSV (not per-plan). Matches the
+    // /api/hd1/encode-csv route which also uses generateHowickCsv.
+    const csv = generateHowickCsv(doc);
 
     // 2. Filename helpers.
     const baseName = filename.replace(/\.(xml|txt)$/i, "");
@@ -79,13 +81,10 @@ export async function POST(req: Request) {
       wrote.push(combinedName);
     }
 
-    // ─ CSV files ────────────────────────────────────────────────────────────
-    for (const [planName, csvText] of Object.entries(csvs)) {
-      const safePlan = planName.replace(/[^A-Za-z0-9._-]/g, "_");
-      const csvName = `${safeJob}#1-1_${safePlan}.csv`;
-      zip.file(csvName, csvText);
-      wrote.push(csvName);
-    }
+    // ─ CSV file (Howick format, single document-wide) ───────────────────────
+    const csvName = `${safeJob}.csv`;
+    zip.file(csvName, csv);
+    wrote.push(csvName);
 
     // ─ PDF (frame elevation) ────────────────────────────────────────────────
     // Reuse the doc we already decoded for CSVs — saves a re-parse.
@@ -113,7 +112,7 @@ export async function POST(req: Request) {
       `Files in this bundle (${wrote.length}):\n` +
       wrote.map(f => `  ${f}`).join("\n") + "\n\n" +
       `RFY: load on the F300i rollformer via USB.\n` +
-      `CSV: per-plan rollforming sequence (one per plan).\n` +
+      `CSV: Howick-format rollforming sequence (single document-wide CSV).\n` +
       `PDF: frame elevation drawing for site reference.\n`
     );
 
