@@ -369,12 +369,17 @@ function computeWebOverrides(
   const EXTREME_TOL_MM = 25;
   const leftEdgeX = sortedV[0]!.crossX;
   const rightEdgeX = sortedV[sortedV.length - 1]!.crossX;
+  // Structural rule (Scott, 2026-05-09 final): end stud's WEB faces the
+  // wall EDGE (the corner connection), LIPS face the wall BODY (interior).
+  // For a vertical stud going up, +perp = LEFT in elevation:
+  //   left-end stud at x=0:    web on LEFT (wall edge)  → lips on -perp = RIGHT (interior) → lipSign=-1
+  //   right-end stud at x=max: web on RIGHT (wall edge) → lips on +perp = LEFT (interior)  → lipSign=+1
   for (const v of sortedV) {
     if (v.crossX <= leftEdgeX + EXTREME_TOL_MM) {
-      overrides.set(v.stick.name, +1); // left-end: lips LEFT, web RIGHT (interior)
+      overrides.set(v.stick.name, -1); // left-end: lips RIGHT (wall body), web LEFT (wall edge)
     }
     if (v.crossX >= rightEdgeX - EXTREME_TOL_MM) {
-      overrides.set(v.stick.name, -1); // right-end: lips RIGHT, web LEFT (interior)
+      overrides.set(v.stick.name, +1); // right-end: lips LEFT (wall body), web RIGHT (wall edge)
     }
   }
 
@@ -394,15 +399,18 @@ function computeWebOverrides(
     const hMin = Math.min(h.m.start.x, h.m.end.x);
     const hMax = Math.max(h.m.start.x, h.m.end.x);
 
+    // Same structural rule as end studs: the JAMB stud's WEB faces away
+    // from the opening (toward the wall body), LIPS face into the
+    // opening (so the door/window frame can attach via lip screws).
     for (const v of verticals) {
       if (overrides.has(v.stick.name)) continue; // frame-end takes priority
       if (Math.abs(v.crossX - hMin) < JAMB_TOL_MM) {
-        // Stud sits at LEFT end of opening — its web should face RIGHT
-        // (into opening). lips on LEFT.
-        overrides.set(v.stick.name, +1);
-      } else if (Math.abs(v.crossX - hMax) < JAMB_TOL_MM) {
-        // Stud sits at RIGHT end of opening — web faces LEFT (into opening).
+        // LEFT jamb (stud at hMin = left edge of opening): opening is on
+        // its RIGHT side, so lips on RIGHT = -perp → lipSign=-1.
         overrides.set(v.stick.name, -1);
+      } else if (Math.abs(v.crossX - hMax) < JAMB_TOL_MM) {
+        // RIGHT jamb: opening on its LEFT, lips on LEFT = +perp → lipSign=+1.
+        overrides.set(v.stick.name, +1);
       }
     }
   }
@@ -812,15 +820,19 @@ function drawStick(
   // perp = (-dirY, dirX) (90° CCW of stick direction).
   //
   // Default (interior studs): FrameCAD's `flipped` attribute drives the
-  // C-section opening direction. Convention (traced through HG260002 N1
-  // S1 — see scripts/trace-s1-n1.ts):
+  // C-section opening direction.
   //
-  //   flipped=false → lips on +perp side (LEFT for vertical stud going up)
-  //   flipped=true  → lips on -perp side (RIGHT for vertical stud going up)
+  // Convention (Scott, 2026-05-09 — final, after multiple iterations):
+  // The STRUCTURAL rule for end studs is "web faces wall EDGE (the
+  // corner), lips face wall BODY (interior)" — opposite of what I
+  // initially assumed. With that rule pinned:
   //
-  // Web sits opposite the lip side. This mapping is consistent with the
-  // structural override for end studs: leftmost stud has flipped=false in
-  // the source XML AND the override forces lipSign=+1 — both agree.
+  //   flipped=false → lips on -perp side (RIGHT for vertical stud going up)
+  //   flipped=true  → lips on +perp side (LEFT for vertical stud going up)
+  //
+  // Web sits opposite the lip side. End-stud override agrees:
+  //   leftmost stud  → lipSign=-1 → lips on RIGHT (wall body) → web on LEFT (wall edge)
+  //   rightmost stud → lipSign=+1 → lips on LEFT  (wall body) → web on RIGHT (wall edge)
   //
   // Override: webOverrides Map keyed by stick.name; +1 = lips on +perp,
   // -1 = lips on -perp. See computeWebOverrides for the structural
@@ -831,7 +843,7 @@ function drawStick(
   // doesn't double-line their long edges either.
   const studStyle = wallStyle && isStudStyleStick(m);
   if (studStyle) {
-    const fallback = stick.flipped ? -1 : +1;
+    const fallback = stick.flipped ? +1 : -1;
     const lipSign: 1 | -1 = webOverrides.get(stick.name) ?? (fallback as 1 | -1);
 
     // ASYMMETRIC OUTLINE — orientation rule (Scott, 2026-05-09):
