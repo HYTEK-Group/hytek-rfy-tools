@@ -63,6 +63,21 @@ export interface PdfOptions {
   showDimensions?: boolean;
   /** Show tooling-mark symbols. Default true. */
   showToolingMarks?: boolean;
+  /**
+   * Optional frameName → frame.type map from the source framecad_import XML
+   * (e.g. "ExternalWall", "InternalWall", "Truss", "Floor", "RoofPanel").
+   *
+   * The renderer prefers this signal when present — it's the most reliable
+   * way to know which frames need wall-style presentation (outline studs +
+   * C-marker) vs truss/floor presentation (filled rectangles). When absent,
+   * falls back to plan-name regex (LBW/NLBW), which only catches a subset
+   * of wall plans.
+   *
+   * Why not on RfyFrame directly? The codec's synthesize/decode roundtrip
+   * doesn't preserve the type attribute. HD1 collects it from the source
+   * XML in framecadImportToRfy and threads it here.
+   */
+  frameTypes?: Map<string, string>;
 }
 
 /**
@@ -78,6 +93,7 @@ export async function generateFramePdf(
     scale: options.scale ?? 0,
     showDimensions: options.showDimensions ?? true,
     showToolingMarks: options.showToolingMarks ?? true,
+    frameTypes: options.frameTypes ?? new Map(),
   };
 
   const pdf = await PDFDocument.create();
@@ -332,22 +348,37 @@ const TITLE_HEIGHT_PT = 60;    // title block at top
 const FOOTER_HEIGHT_PT = 24;   // optional footer
 
 /**
- * True iff the plan is a wall plan whose sticks should render in
- * "wall-elevation" style — thin outlined rectangles (no fill for studs).
+ * True iff the frame should render in "wall-elevation" style — thin
+ * outlined rectangles for studs (no fill), filled rectangles for plates,
+ * + a small C-section orientation marker on each stud.
  *
- * Pattern matches `-LBW-` and `-NLBW-` (load-bearing + non-load-bearing
- * wall) plan suffixes case-insensitively. Same regex used elsewhere in the
- * codec (`isWallServicePlanName` in @hytek/rfy-codec/src/simplify-wall-service.ts)
- * so behaviour stays consistent if/when more plan types adopt the wall
- * convention.
+ * Detection priority (Scott, 2026-05-09: "this needs to be understood as
+ * an understanding of XML frames presented" — i.e. don't lean on plan-name
+ * regex):
+ *
+ *   1. **frame.type from the source XML** (passed in via opts.frameTypes).
+ *      Anything containing "Wall" → wall-style. Examples seen in HYTEK
+ *      jobs: "ExternalWall", "InternalWall". This is the authoritative
+ *      signal — the framecad_import XML schema includes type as a frame
+ *      attribute precisely to convey presentation intent.
+ *
+ *   2. **Plan-name regex fallback** for older callers that don't supply
+ *      frame.type, or for jobs where the XML omitted it. Matches
+ *      `-LBW-` / `-NLBW-` (load-bearing + non-load-bearing wall). Same
+ *      regex the codec uses (isWallServicePlanName).
  *
  * For walls the operator's view is perpendicular to the wall face — the
  * 89mm web is INTO the page and only the 41mm flange edge is visible.
- * Detailer renders this convention as thin hairline-ish outlined rectangles;
- * we mirror that here so the PDFs read the same as the EOL Detailer output
+ * Detailer renders this as thin hairline-ish outlined rectangles; HD1
+ * mirrors that so the PDFs read the same as the EOL Detailer output
  * Scott's been using for years.
+ *
+ * Truss/Floor/RoofPanel frames render as filled rectangles (the 89mm web
+ * IS visible in those elevation planes), with no orientation marker.
  */
-function isWallPlan(planName: string): boolean {
+function isWallFrame(planName: string, frameName: string, frameTypes: Map<string, string>): boolean {
+  const t = frameTypes.get(frameName);
+  if (t) return /wall/i.test(t);
   return /-(N?LBW)-/i.test(planName);
 }
 
@@ -455,7 +486,7 @@ function drawFramePage(
   // and opening jamb studs — they always face inward regardless of
   // FrameCAD's `flipped` attribute (structural rule, see
   // computeWebOverrides docstring).
-  const wallStyle = isWallPlan(planName);
+  const wallStyle = isWallFrame(planName, frame.name, opts.frameTypes);
   const webOverrides = wallStyle ? computeWebOverrides(frame, bb) : new Map<string, 1 | -1>();
   for (const stick of frame.sticks) {
     drawStick(page, stick, layout, font, opts, wallStyle, webOverrides);

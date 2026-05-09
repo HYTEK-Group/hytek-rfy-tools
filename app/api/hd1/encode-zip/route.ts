@@ -88,10 +88,15 @@ export async function POST(req: Request) {
 
     // ─ PDF (frame elevation) ────────────────────────────────────────────────
     // Reuse the doc we already decoded for CSVs — saves a re-parse.
+    // Pass frameTypes so the renderer can pick wall vs truss vs floor
+    // presentation style by actual frame.type from the source XML rather
+    // than guessing from plan-name patterns (Scott, 2026-05-09: must work
+    // for every frame type the XML presents, not just LBW/NLBW).
     const pdfBytes = await generateFramePdf(doc, {
       pageSize: "A3",
       showDimensions: true,
       showToolingMarks: true,
+      frameTypes: result.frameTypes,
     });
     const pdfName = `${safeJob}_frames.pdf`;
     zip.file(pdfName, new Uint8Array(pdfBytes));

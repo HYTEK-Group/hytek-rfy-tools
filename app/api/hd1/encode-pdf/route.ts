@@ -30,10 +30,12 @@ export async function POST(req: Request) {
 
     const lower = xml.toLowerCase();
     let scheduleXml: string;
+    let frameTypes: Map<string, string> | undefined = undefined;
     if (lower.includes("<framecad_import")) {
       const result = framecadImportToRfy(xml);
       if (result.stickCount === 0) throw new Error("No sticks found in <framecad_import> document.");
       scheduleXml = result.xml;
+      frameTypes = result.frameTypes;
     } else if (lower.includes("<schedule")) {
       scheduleXml = xml;
     } else {
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
     const doc = decodeXml(scheduleXml);
     if (doc.project.plans.length === 0) throw new Error("Decoded document has no plans.");
 
-    const pdfBytes = await generateFramePdf(doc, { pageSize, showDimensions, showToolingMarks });
+    const pdfBytes = await generateFramePdf(doc, { pageSize, showDimensions, showToolingMarks, frameTypes });
     const safeJob = (doc.project.jobNum || "frames").replace(/[^A-Za-z0-9]/g, "");
     const baseName = filename.replace(/\.(xml|txt)$/i, "");
     const outName = `${safeJob || baseName}_frames.pdf`;

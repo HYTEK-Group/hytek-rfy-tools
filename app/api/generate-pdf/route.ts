@@ -37,6 +37,7 @@ export async function POST(req: Request) {
 
     const lower = xml.toLowerCase();
     let scheduleXml: string;
+    let frameTypes: Map<string, string> | undefined = undefined;
 
     if (lower.includes("<framecad_import")) {
       // Synthesize via codec — fills in tooling-op positions.
@@ -45,6 +46,7 @@ export async function POST(req: Request) {
         throw new Error("No sticks found in <framecad_import> document.");
       }
       scheduleXml = result.xml;
+      frameTypes = result.frameTypes;
     } else if (lower.includes("<schedule")) {
       scheduleXml = xml;
     } else {
@@ -63,6 +65,7 @@ export async function POST(req: Request) {
       pageSize,
       showDimensions,
       showToolingMarks,
+      frameTypes,
     });
 
     const safeJob = (doc.project.jobNum || "frames").replace(/[^A-Za-z0-9]/g, "");

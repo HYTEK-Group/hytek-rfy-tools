@@ -710,6 +710,14 @@ export function framecadImportToParsedProject(xmlText: string): ParsedProject {
 /**
  * One-shot: framecad_import XML → encrypted RFY buffer. Preferred entry point
  * for the rollformer pipeline.
+ *
+ * Also returns a frameTypes Map keyed by frame name → frame.type from the
+ * source XML (e.g. "ExternalWall", "InternalWall", "Truss", "Floor",
+ * "RoofPanel"). The codec's RFY output / decoded RfyDocument doesn't preserve
+ * this attribute, but the PDF renderer needs it to pick the right
+ * presentation style for each frame regardless of plan-name conventions
+ * (Scott, 2026-05-09: the renderer must understand the XML's frame
+ * structure, not rely on plan-name regex).
  */
 export function framecadImportToRfy(xmlText: string, options: { lenient?: boolean } = {}): {
   rfy: Buffer;
@@ -721,6 +729,7 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
   jobnum: string;
   client: string;
   date: string;
+  frameTypes: Map<string, string>;
 } {
   const project = framecadImportToParsedProject(xmlText);
   // Default to lenient=true: roof panels (RP) and other non-rectangular envelopes
@@ -729,6 +738,19 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
   // we just want a warning, not a hard throw.
   const lenient = options.lenient ?? true;
   const result = synthesizeRfyFromPlans(project, { lenient });
+
+  // Build frameName → frame.type map from the source XML so the PDF
+  // renderer can pick presentation style by actual frame type, not by
+  // brittle plan-name regex. parsePlans already extracted this; we just
+  // re-walk it here (cheap — no second XML parse).
+  const { plans: rawPlans } = parsePlans(xmlText);
+  const frameTypes = new Map<string, string>();
+  for (const plan of rawPlans) {
+    for (const frame of plan.frames) {
+      if (frame.type) frameTypes.set(frame.name, frame.type);
+    }
+  }
+
   return {
     rfy: result.rfy,
     xml: result.xml,
@@ -737,6 +759,7 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
     stickCount: result.stickCount,
     projectName: project.name,
     jobnum: project.jobNum,
+    frameTypes,
     client: project.client,
     date: project.date,
   };
