@@ -47,17 +47,32 @@ describe("inspect bad PDF", () => {
       try {
         const decoded = zlib.inflateSync(s);
         const text = decoded.toString("latin1");
-        // Look for moveto patterns: "X Y m"
+        // Pull frame name from Tj operators — written via drawText
+        // which uses Tj/TJ. Look for "(Frame:..." pattern, possibly with
+        // hex encoding. Also try simple ASCII match.
+        const frameMatch =
+          text.match(/Frame:\s*([A-Za-z0-9_\-]+)/) ??
+          text.match(/\(([^)]*N\d+[^)]*)\)/);
         const matches = [...text.matchAll(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+m\b/g)];
         if (matches.length > 5) {
           paged++;
           const xs = matches.map(m => Number(m[1]));
           const ys = matches.map(m => Number(m[2]));
-          const uniqueXs = new Set(xs.map(x => Math.round(x * 10) / 10));
-          const uniqueYs = new Set(ys.map(y => Math.round(y * 10) / 10));
-          // Flag pages where X/Y are suspiciously few
-          const suspect = uniqueXs.size < 30 && matches.length > 100;
-          console.log(`page ${paged}: ${matches.length} moveto, ${uniqueXs.size}x ${uniqueYs.size}y unique${suspect ? " ★STACK?" : ""}`);
+          const sortedX = [...new Set(xs.map(x => Math.round(x * 10) / 10))].sort((a,b)=>a-b);
+          const sortedY = [...new Set(ys.map(y => Math.round(y * 10) / 10))].sort((a,b)=>a-b);
+          // Studs typically dominate moveto count for tall frames; if the
+          // X spread is small but Y spread is large, suspect stacking.
+          const xSpread = sortedX[sortedX.length-1]! - sortedX[0]!;
+          const ySpread = sortedY[sortedY.length-1]! - sortedY[0]!;
+          const tallNarrow = xSpread > 0 && ySpread > 0 && (ySpread / xSpread > 5);
+          // Stripped narrowness — only flag when the studs are clustered
+          // i.e. ratio of stick X-spread to frame Y-spread > 5
+          const noTitle = sortedX.filter(x => x > 50);  // strip title block
+          const noTitleSpread = noTitle.length > 1 ? noTitle[noTitle.length-1]! - noTitle[0]! : 0;
+          const stickStack = ySpread > 200 && noTitleSpread < ySpread / 3;
+          if (stickStack || sortedX.length <= 25) {
+            console.log(`page ${paged} [${frameMatch?.[1] ?? "?"}]: mv=${matches.length} xSpread=${noTitleSpread.toFixed(0)}pt (incl-title=${xSpread.toFixed(0)}) ySpread=${ySpread.toFixed(0)}pt ${stickStack ? "★STACK" : ""}`);
+          }
         }
       } catch (e) {
         // not a flate stream — skip
