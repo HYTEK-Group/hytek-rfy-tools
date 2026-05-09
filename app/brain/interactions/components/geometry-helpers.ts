@@ -47,8 +47,17 @@ export function buildProfileShape(
     dropTopLip?: boolean;
     /** Drop the lower (−y) lip — used inside LipNotch (bottom) span. */
     dropBottomLip?: boolean;
-    /** Press web inward — used inside Swage span. mm of inward press. */
-    swagePress?: number;
+    /**
+     * Compress the entering stick's profile so it fits INSIDE the receiving
+     * stick's interior cavity — the geometry of a real Swage. Web height
+     * shrinks by 2×gauge + 2mm clearance, flange depth shrinks by lip + 1mm,
+     * and lips are fully gone in the swaged span. Used for the LAST ~50mm
+     * of an entering stick, so its tip nests inside the receiving stick's
+     * open mouth. (Replaces the older `swagePress` which only pressed the
+     * web inward by 5mm — that was wrong; the Swage is a profile compressor,
+     * not a web denter.)
+     */
+    swageCompress?: boolean;
     /** Remove the web entirely — used inside InnerNotch span. */
     notchWeb?: boolean;
   } = {},
@@ -59,13 +68,25 @@ export function buildProfileShape(
   const lip = profile.lip || 12;
   const t = Math.max(0.4, parseFloat(profile.gauge) || 0.75);
 
-  const yTop = +w / 2;
-  const yBot = -w / 2;
+  // Swage compression: shrink the web height + flange depth + drop lips so
+  // the profile physically fits inside another C-section's interior cavity.
+  // Clearances per FrameCAD: ~2mm on web height (1mm each side), 1mm on
+  // flange depth.
+  const compress = options.swageCompress === true;
+  const webShrink = compress ? t + 1 : 0; // each side of web pulled in
+  const flangeShrink = compress ? lip + 1 : 0; // both flanges shortened
+  const lfEff = lf - flangeShrink;
+  const rfEff = rf - flangeShrink;
+  // In a swaged segment, lips are gone regardless of dropTopLip/dropBottomLip.
+  const dropTop = options.dropTopLip || compress;
+  const dropBottom = options.dropBottomLip || compress;
 
-  // For Swage: webX is the X-coord of the web back face. Normally 0;
-  // when pressed, we push it INWARD (positive x, toward the flange-open
-  // side) by `swagePress` mm.
-  const webX = options.swagePress ?? 0;
+  const yTop = +w / 2 - webShrink;
+  const yBot = -w / 2 + webShrink;
+
+  // Web back is always at x = 0 (we no longer push the web inward — that
+  // was the old swagePress hack which produced wrong geometry).
+  const webX = 0;
 
   // If the web is fully notched out, we render an open profile — just
   // the two flanges as separate strokes. Easier to model as two thin
@@ -76,20 +97,20 @@ export function buildProfileShape(
   if (options.notchWeb) {
     return [
       { x: webX, y: yBot },
-      { x: rf, y: yBot },
-      { x: rf, y: yBot + lip },
-      { x: rf - t, y: yBot + lip },
-      { x: rf - t, y: yBot + t },
+      { x: rfEff, y: yBot },
+      { x: rfEff, y: yBot + lip },
+      { x: rfEff - t, y: yBot + lip },
+      { x: rfEff - t, y: yBot + t },
       { x: webX + t, y: yBot + t }, // bottom flange inner end at web side
       { x: webX + t, y: -1.5 }, // dive in
       { x: webX, y: -1.5 }, // small notch into web
       { x: webX, y: 1.5 },
       { x: webX + t, y: 1.5 },
       { x: webX + t, y: yTop - t },
-      { x: lf - t, y: yTop - t },
-      { x: lf - t, y: yTop - lip },
-      { x: lf, y: yTop - lip },
-      { x: lf, y: yTop },
+      { x: lfEff - t, y: yTop - t },
+      { x: lfEff - t, y: yTop - lip },
+      { x: lfEff, y: yTop - lip },
+      { x: lfEff, y: yTop },
       { x: webX, y: yTop },
     ];
   }
@@ -102,29 +123,29 @@ export function buildProfileShape(
   // flat edge at the lip tip. Web stays at full height.
   const points: Point2[] = [];
   points.push({ x: webX, y: yBot });
-  points.push({ x: rf, y: yBot });
+  points.push({ x: rfEff, y: yBot });
 
-  if (options.dropBottomLip) {
+  if (dropBottom) {
     // Flange end is flat — go from outer corner directly to inner.
-    points.push({ x: rf, y: yBot + t });
+    points.push({ x: rfEff, y: yBot + t });
     points.push({ x: webX + t, y: yBot + t });
   } else {
-    points.push({ x: rf, y: yBot + lip });
-    points.push({ x: rf - t, y: yBot + lip });
-    points.push({ x: rf - t, y: yBot + t });
+    points.push({ x: rfEff, y: yBot + lip });
+    points.push({ x: rfEff - t, y: yBot + lip });
+    points.push({ x: rfEff - t, y: yBot + t });
     points.push({ x: webX + t, y: yBot + t });
   }
 
   points.push({ x: webX + t, y: yTop - t });
 
-  if (options.dropTopLip) {
-    points.push({ x: lf, y: yTop - t });
-    points.push({ x: lf, y: yTop });
+  if (dropTop) {
+    points.push({ x: lfEff, y: yTop - t });
+    points.push({ x: lfEff, y: yTop });
   } else {
-    points.push({ x: lf - t, y: yTop - t });
-    points.push({ x: lf - t, y: yTop - lip });
-    points.push({ x: lf, y: yTop - lip });
-    points.push({ x: lf, y: yTop });
+    points.push({ x: lfEff - t, y: yTop - t });
+    points.push({ x: lfEff - t, y: yTop - lip });
+    points.push({ x: lfEff, y: yTop - lip });
+    points.push({ x: lfEff, y: yTop });
   }
 
   points.push({ x: webX, y: yTop });
@@ -186,7 +207,7 @@ export function computeStickSegments(
     // Determine which mods apply at this z-midpoint
     let dropTop = false;
     let dropBottom = false;
-    let swagePress = 0;
+    let swageCompress = false;
     let notchWeb = false;
 
     for (const op of ops) {
@@ -195,7 +216,9 @@ export function computeStickSegments(
         if (op.flangeSide === "bottom" || op.flangeSide === "both") dropBottom = true;
       }
       if (op.type === "Swage" && mid >= op.spanStart && mid <= op.spanEnd) {
-        swagePress = 5; // 5mm press (visible but not exaggerated)
+        // Real Swage: profile is compressed across the span so the entering
+        // stick's tip fits INSIDE the receiving stick's interior cavity.
+        swageCompress = true;
       }
       if (op.type === "InnerNotch" && mid >= op.spanStart && mid <= op.spanEnd) {
         notchWeb = true;
@@ -208,7 +231,7 @@ export function computeStickSegments(
       profile: buildProfileShape(profile, {
         dropTopLip: dropTop,
         dropBottomLip: dropBottom,
-        swagePress,
+        swageCompress,
         notchWeb,
       }),
     });

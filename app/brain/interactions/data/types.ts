@@ -130,6 +130,64 @@ export interface StickConfig {
   tint?: string;
 }
 
+/**
+ * One joint in an interaction — the point where one stick TERMINATES INTO
+ * another. Renders the FrameCAD-spec fasteners (1× or 2× #10 screws per
+ * side, plus optional reinforcing connector plates) at the joint.
+ *
+ * Per HYTEK standard ("Use 1×10g screws for all connections"), every
+ * joint where one stick enters another has at minimum 1 screw per side
+ * driven perpendicular to the touching flanges. High-load joints add a
+ * connector plate sandwiching the joint with a multi-screw cluster.
+ */
+export interface JointConfig {
+  /** World-space position of the joint centre (mm). */
+  position: [number, number, number];
+  /**
+   * The world-space axis that the screws are perpendicular to — i.e. the
+   * direction from one side of the joint to the other ("through the
+   * touching flanges"). For an A1 stud-into-top-plate joint, this is the
+   * world Z axis (front-back through the wall).
+   */
+  axis: [number, number, number];
+  /**
+   * The world-space length axis of the joint — typically along the
+   * receiving stick's length. Used to space multiple screws along the
+   * joint when count > 1.
+   */
+  spanAxis: [number, number, number];
+  /**
+   * "Half thickness" of the joint along `axis` — the distance from the
+   * joint centre to where the screw heads bear. For a 70mm-web receiving
+   * stick this is web/2 = 35mm.
+   */
+  halfThickness: number;
+  /**
+   * Number of screws PER SIDE.
+   *   1 = single-screw variant (2 total — one each side)
+   *   2 = double-screw variant (4 total)
+   * For "reinforced" joints, set count and `connectorPlate: true`.
+   */
+  screwsPerSide: number;
+  /**
+   * Mid-screw spacing along spanAxis (mm). For double-screw, spacing
+   * between the 2 screws on the same side. For 4+ screws, the cluster
+   * grid pitch.
+   */
+  screwSpacing?: number;
+  /**
+   * If true, render a flat connector plate sandwiching the joint on
+   * BOTH sides of the truss/wall (one plate each side of `axis`). Used
+   * for high-load joints (FC-R3 right variant, FC-R4 apex/heel, FC-R5).
+   * The plate is sized to span the joint members.
+   */
+  connectorPlate?: boolean;
+  /** Connector-plate dimensions — width (along spanAxis), height (perpendicular). */
+  plateSize?: [number, number];
+  /** Optional label for documentation/debug. */
+  label?: string;
+}
+
 /** Full configuration for one interaction scene. */
 export interface InteractionConfig {
   /** Catalogue id, e.g. "A1", "D2". */
@@ -140,6 +198,12 @@ export interface InteractionConfig {
   description: string;
   /** Sticks comprising the scene. */
   sticks: StickConfig[];
+  /**
+   * Optional joints — the points where sticks meet. Renders fasteners
+   * and optional connector plates at each joint per the HYTEK FrameCAD
+   * standard.
+   */
+  joints?: JointConfig[];
   /** Optional viewport hint — camera target + distance override. */
   cameraTarget?: [number, number, number];
   cameraDistance?: number;

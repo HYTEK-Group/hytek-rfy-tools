@@ -13,6 +13,7 @@ import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { Stick3DOps } from "./Stick3DOps";
+import { JointHardware } from "./JointHardware";
 import type { InteractionConfig } from "../data/types";
 
 interface InteractionSceneProps {
@@ -155,6 +156,13 @@ export function InteractionScene({ config }: InteractionSceneProps) {
         {/* The sticks. */}
         {config.sticks.map((stick, i) => (
           <Stick3DOps key={i} config={stick} />
+        ))}
+
+        {/* Joint hardware — fasteners + connector plates at the points
+            where sticks meet (per FrameCAD "Use 1×10g screws for all
+            connections" rule). */}
+        {config.joints?.map((joint, i) => (
+          <JointHardware key={`joint-${i}`} joint={joint} />
         ))}
       </Canvas>
     </div>

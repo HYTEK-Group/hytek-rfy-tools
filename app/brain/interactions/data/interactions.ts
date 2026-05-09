@@ -29,108 +29,296 @@ import {
   type InteractionConfig,
 } from "./types";
 
+// ──────────────────────────────────────────────────────────────────
 // Common rotations
-const ROT_HORIZONTAL_X: [number, number, number] = [0, Math.PI / 2, 0]; // extrudes +X
-const ROT_VERTICAL_Y: [number, number, number] = [-Math.PI / 2, 0, 0]; // extrudes +Y
-const ROT_DIAGONAL_45: [number, number, number] = [-Math.PI / 4, 0, 0]; // 45° from horizontal in XY plane
+// ──────────────────────────────────────────────────────────────────
+//
+// Each rotation maps the LOCAL profile axes to WORLD axes as follows.
+// (Profile +X = flange-opening direction; profile +Y = web-up direction;
+// profile +Z = extrusion direction.)
+//
+// ROT_HORIZONTAL_X         (open mouth faces world -Z, extrudes +X)
+// ROT_HORIZONTAL_X_DOWN    (open mouth faces world -Y, extrudes +X) ← top plate / top chord
+// ROT_HORIZONTAL_X_UP      (open mouth faces world +Y, extrudes +X) ← bottom plate / bottom chord
+// ROT_VERTICAL_Y           (open mouth faces world +X, extrudes +Y)
+// ROT_VERTICAL_Y_FLIP_X    (open mouth faces world -X, extrudes +Y)
+//
+// The "_DOWN" / "_UP" variants are critical for nested-joint geometry:
+// for the entering stick (e.g. a vertical stud) to nest INSIDE the
+// receiving stick (top plate), the receiving stick's open mouth must face
+// the entering stick's tip. A plate with the standard ROT_HORIZONTAL_X
+// rotation has its mouth facing world -Z, which is wrong for a vertical
+// stud meeting it from below.
+
+// Note: ROT_HORIZONTAL_X / VERTICAL_Y are kept on their literal values for
+// continuity with existing scenes; they're equivalent to the eulerFromAxes
+// output for the same world-direction pair. The "_DOWN" / "_UP" rotations
+// for top-plate / bottom-plate are computed via eulerFromAxes below.
+const ROT_HORIZONTAL_X: [number, number, number] = [0, Math.PI / 2, 0];
+const ROT_VERTICAL_Y: [number, number, number] = [-Math.PI / 2, 0, 0];
+
+// Helper: build an XYZ Euler tuple from a 2-axis world-space basis.
+//
+//   extrusion  = world-space direction the stick extrudes along
+//                (where local +Z gets mapped after rotation)
+//   flangeOpen = world-space direction the stick's open mouth faces
+//                (where local +X gets mapped after rotation)
+//
+// This gives full control of both the stick's length axis AND its
+// flange-opening direction. The third axis (web-up direction = local +Y)
+// is determined by orthogonality. We orthogonalise `flangeOpen` against
+// `extrusion` so callers can pass approximate vectors — only the
+// component perpendicular to extrusion matters.
+//
+// Rotation matrix: M = [flangePerp | third | ext] (column-major), so
+// applying M to local +X gives flangePerp, +Y gives third, +Z gives ext.
+// We then extract the XYZ-order Euler angles from M using the standard
+// rotation-matrix-to-Euler conversion (matches THREE.Euler.setFromRotationMatrix).
+function eulerFromAxes(
+  extrusion: [number, number, number],
+  flangeOpen: [number, number, number],
+): [number, number, number] {
+  // Normalise extrusion
+  const eLen = Math.hypot(extrusion[0], extrusion[1], extrusion[2]) || 1;
+  const ex = extrusion[0] / eLen;
+  const ey = extrusion[1] / eLen;
+  const ez = extrusion[2] / eLen;
+  // Project flangeOpen onto extrusion, subtract, normalise
+  const dot = flangeOpen[0] * ex + flangeOpen[1] * ey + flangeOpen[2] * ez;
+  let fx = flangeOpen[0] - dot * ex;
+  let fy = flangeOpen[1] - dot * ey;
+  let fz = flangeOpen[2] - dot * ez;
+  const fLen = Math.hypot(fx, fy, fz) || 1;
+  fx /= fLen;
+  fy /= fLen;
+  fz /= fLen;
+  // Third axis = ext × flangePerp
+  const tx = ey * fz - ez * fy;
+  const ty = ez * fx - ex * fz;
+  const tz = ex * fy - ey * fx;
+  // Build rotation matrix (column-major):
+  //   col0 = (fx, fy, fz)
+  //   col1 = (tx, ty, tz)
+  //   col2 = (ex, ey, ez)
+  // Matrix elements m[row][col]:
+  //   m11=fx, m12=tx, m13=ex
+  //   m21=fy, m22=ty, m23=ey
+  //   m31=fz, m32=tz, m33=ez
+  const m13 = ex;
+  const m23 = ey;
+  const m33 = ez;
+  const m11 = fx;
+  const m12 = tx;
+  // Use the same XYZ-order extraction as THREE.Euler.setFromRotationMatrix:
+  //   y = asin(clamp(m13))
+  //   if |m13| < 0.9999999:
+  //     x = atan2(-m23, m33)
+  //     z = atan2(-m12, m11)
+  //   else (gimbal lock):
+  //     x = atan2(m32, m22) (where m22 = ty, m32 = tz)
+  //     z = 0
+  const clamp = (v: number, lo: number, hi: number) =>
+    Math.max(lo, Math.min(hi, v));
+  const y = Math.asin(clamp(m13, -1, 1));
+  let x: number;
+  let z: number;
+  if (Math.abs(m13) < 0.9999999) {
+    x = Math.atan2(-m23, m33);
+    z = Math.atan2(-m12, m11);
+  } else {
+    x = Math.atan2(tz, ty);
+    z = 0;
+  }
+  return [x, y, z];
+}
 
 // Helper: rotation for a stick at angle θ from horizontal in the XY plane,
-// extrusion direction = (cos θ, sin θ, 0)
+// extrusion direction = (cos θ, sin θ, 0). The flange-opening direction
+// is forced to face world -Z (standard "viewer faces flange" orientation).
+//
+// (Note: the previous implementation `[0, π/2, θ]` was buggy under
+// Three.js XYZ Euler — it always produced extrusion along world +X
+// regardless of θ. This implementation correctly produces an angled
+// extrusion using a 2-axis basis.)
 function rotForXYAngle(theta: number): [number, number, number] {
-  // Start: extrusion +Z = (0,0,1)
-  // Target: extrusion = (cos θ, sin θ, 0)
-  // Rotate by π/2 about Y to get +X, then by θ about Z. Equivalent:
-  // rotation [angleX, angleY, angleZ] → R = Rz·Ry·Rx
-  // We want the final extrusion vector: Ry(π/2) sends +Z to +X; then
-  // Rz(θ) sends +X to (cos θ, sin θ, 0). So [0, π/2, θ] works.
-  return [0, Math.PI / 2, theta];
+  const ext: [number, number, number] = [Math.cos(theta), Math.sin(theta), 0];
+  return eulerFromAxes(ext, [0, 0, -1]);
 }
+
+// Helper: rotation for an angled brace going from a low point UP to a
+// high point at angle θ from horizontal — with the open mouth facing
+// the receiving plate above. The flange-opening direction is the
+// perpendicular-in-XY-plane that points "up and to the side" (above
+// the brace's centreline).
+//
+// mouthSide:
+//   "above" → mouth opens toward (-sin θ, cos θ, 0) — for a brace
+//             going up-right at angle θ, open mouth faces upward
+//             (perpendicular to the brace, pointing toward the plate
+//             above). Use this for braces meeting a top plate.
+//   "below" → mouth opens toward (sin θ, -cos θ, 0).
+function rotForAngledIntoPlate(
+  theta: number,
+  mouthSide: "above" | "below" = "above",
+): [number, number, number] {
+  const ext: [number, number, number] = [Math.cos(theta), Math.sin(theta), 0];
+  const sign = mouthSide === "above" ? +1 : -1;
+  const flangeOpen: [number, number, number] = [
+    -sign * Math.sin(theta),
+    +sign * Math.cos(theta),
+    0,
+  ];
+  return eulerFromAxes(ext, flangeOpen);
+}
+
+// Top plate / top chord: extrudes along world +X, mouth opens DOWN
+// (world -Y) so a vertical stud entering from below nests inside.
+const ROT_HORIZONTAL_X_DOWN: [number, number, number] = eulerFromAxes(
+  [1, 0, 0],
+  [0, -1, 0],
+);
+// Bottom plate / bottom chord: extrudes +X, mouth opens UP (world +Y)
+// so a vertical stud entering from above nests inside.
+const ROT_HORIZONTAL_X_UP: [number, number, number] = eulerFromAxes(
+  [1, 0, 0],
+  [0, 1, 0],
+);
 
 export const INTERACTIONS: InteractionConfig[] = [
   // ──────────────────────────────────────────────────────────────────
   // A1 — T-junction (orthogonal): stud meets top plate
+  //   Per FrameCAD FC-W2: the stud's top end NESTS INSIDE the plate's
+  //   open mouth. The plate's flanges hug the stud's web from front and
+  //   back. The plate's lips are notched out across the stud's entry
+  //   width so the stud's flange ends can pass through. The stud's last
+  //   ~50mm is swaged (profile compressed) so it physically fits inside
+  //   the plate's interior cavity. 1× #10g screw per side at the joint.
   // ──────────────────────────────────────────────────────────────────
   {
     id: "A1",
     name: "A1 — T-junction (orthogonal)",
     description:
-      "A vertical stud meets a horizontal top plate at 90°. The stud is end-capped with a Swage + InnerDimple at its top end. The plate gets a LipNotch at the stud's centreline, plus an InnerDimple to receive the stud's dimple. This is the most common joint in HYTEK panel framing.",
+      "A vertical stud nests INSIDE a horizontal top plate at 90°. The stud's top 50mm is swaged (profile compressed) so it fits inside the plate's interior cavity. The plate's open mouth faces DOWN, its flanges hug the stud's web from front and back, and its lips are notched out across the stud's entry width. 1× #10g screw per side per FrameCAD FC-W2.",
     sticks: [
-      // Stud — vertical, 2400mm long, starts at floor level
+      // Stud — vertical, top end NESTED inside plate. Length 2398 →
+      // tip at world Y=2398, just below the plate's web inner face
+      // (Y=2400-t≈2399.25). The last 50mm (z=2348-2398) is swaged.
       {
         profile: PROFILE_70S41,
-        length: 2400,
+        length: 2398,
         position: [0, 0, 0],
         rotation: ROT_VERTICAL_Y,
         label: "Stud (S)",
         ops: [
-          // Swage end-cap at top end (last 39mm of stick)
-          { type: "Swage", spanStart: 2361, spanEnd: 2400 },
-          // InnerDimple at fastener position (top end - 20mm)
-          { type: "InnerDimple", pos: 2380 },
+          // Swage compresses the top 50mm so it fits inside plate cavity
+          { type: "Swage", spanStart: 2348, spanEnd: 2398 },
+          // InnerDimple — locks stud into the plate's matching dimple
+          { type: "InnerDimple", pos: 2378 },
         ],
       },
-      // Top plate — horizontal, 1200mm long, centered above the stud
+      // Top plate — horizontal, mouth opens DOWNWARD so the stud nests
+      // inside. Position chosen so plate's web is at world Y=2400.
+      // Plate length 1200 centred over the stud at world X=0.
       {
         profile: PROFILE_70S41,
         length: 1200,
         position: [-600, 2400, 0],
-        rotation: ROT_HORIZONTAL_X,
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate (P)",
         ops: [
-          // LipNotch centered at x=600 (where stud meets), 39mm wide
+          // LipNotch — cuts both lips of the plate over the stud's
+          // entry width (~45mm with clearance). Stud is at plate-local
+          // z=600 (world X=0).
           {
             type: "LipNotch",
-            spanStart: 580,
-            spanEnd: 620,
+            spanStart: 575,
+            spanEnd: 625,
             flangeSide: "both",
           },
-          // InnerDimple at the centerline of the lip notch
+          // Dimple in plate's web aligns with stud's dimple for register
           { type: "InnerDimple", pos: 600 },
         ],
+      },
+    ],
+    joints: [
+      // 1× #10g screw per side at the joint (2 total, front and back).
+      // Through-axis is world Z (the touching-flange direction).
+      // Half-thickness = plate web/2 = 35mm + plate flange thickness.
+      {
+        position: [0, 2380, 0],
+        axis: [0, 0, 1],
+        spanAxis: [0, 1, 0],
+        halfThickness: 35,
+        screwsPerSide: 1,
+        label: "stud-to-top-plate",
       },
     ],
   },
 
   // ──────────────────────────────────────────────────────────────────
-  // A2 — T-junction (angled, 60° from vertical = 30° from horizontal)
+  // A2 — T-junction (angled): brace meets plate at 60° from horizontal
+  //   Per FrameCAD FC-W2: same nesting rule as A1 but the entering stick
+  //   arrives at an angle. Brace's tip nests inside the plate; the
+  //   brace's last 50mm is swaged + chamfered to fit cleanly.
   // ──────────────────────────────────────────────────────────────────
   {
     id: "A2",
     name: "A2 — T-junction (angled, 60°)",
     description:
-      "An angled brace meeting a horizontal plate at 60° from vertical (30° from horizontal). The brace gets a Chamfer at its end (so it sits flush on the plate) plus an elongated Swage end-cap and InnerDimple. The plate gets the same LipNotch + InnerDimple as the orthogonal case.",
+      "An angled brace meets a horizontal top plate at 60° from horizontal. The brace's tip NESTS INSIDE the plate's open mouth (mouth faces down). The brace's last 50mm is swaged so its compressed profile fits inside the plate cavity, plus a Chamfer at the very end to clear the plate's web. The plate gets a LipNotch over the brace's entry width. 1× #10g screw per side.",
     sticks: [
-      // Brace at 30° from horizontal, 1500mm. Tip lands at (1299, 750).
+      // Brace at 60° from horizontal, 1800mm. Tip at world
+      // (1800·cos60°, 1800·sin60°, 0) = (900, 1559, 0).
+      // Open mouth oriented to face TOWARD the plate above (perpendicular
+      // to brace, "above-side" = direction toward plate).
       {
         profile: PROFILE_70S41,
-        length: 1500,
+        length: 1800,
         position: [0, 0, 0],
-        rotation: rotForXYAngle((Math.PI / 180) * 30),
+        rotation: rotForAngledIntoPlate((Math.PI / 180) * 60, "above"),
         label: "Brace (B)",
         ops: [
+          // Swage compression at the tip (last 50mm) so brace's profile
+          // fits inside plate's interior cavity
+          { type: "Swage", spanStart: 1750, spanEnd: 1800 },
+          // Chamfer at very end so the corner doesn't scrape plate web
           { type: "Chamfer", end: "end" },
-          { type: "Swage", spanStart: 1440, spanEnd: 1500 },
-          { type: "InnerDimple", pos: 1480 },
+          // Dimple registers brace into plate's matching dimple
+          { type: "InnerDimple", pos: 1780 },
         ],
       },
-      // Plate at y=1299*tan30° + brace_tip_y. Position the plate so its
-      // centerline passes through the brace's tip (1299, 750).
+      // Plate — horizontal, mouth opens DOWNWARD. Position so plate's
+      // web is at world Y = brace tip Y + ~30 (clearance) ≈ 1590.
+      // Plate length 2400 centred over brace tip world X=900.
       {
         profile: PROFILE_70S41,
         length: 2400,
-        position: [-100, 750, 0],
-        rotation: ROT_HORIZONTAL_X,
-        label: "Plate",
+        position: [-300, 1590, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
+        label: "Top plate (P)",
         ops: [
+          // Lipnotch centered at plate-local z = brace tip world X - plate
+          // start world X = 900 - (-300) = 1200. Span ±25mm = 50mm.
           {
             type: "LipNotch",
-            spanStart: 1379,
-            spanEnd: 1419,
+            spanStart: 1175,
+            spanEnd: 1225,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1399 },
+          { type: "InnerDimple", pos: 1200 },
         ],
+      },
+    ],
+    joints: [
+      {
+        // Joint centre — slightly inside plate, at brace tip - small
+        // offset. Position chosen visually for the screw on the joint.
+        position: [880, 1568, 0],
+        axis: [0, 0, 1],
+        spanAxis: [0, 1, 0],
+        halfThickness: 35,
+        screwsPerSide: 1,
+        label: "brace-to-top-plate",
       },
     ],
   },
@@ -179,18 +367,22 @@ export const INTERACTIONS: InteractionConfig[] = [
   },
 
   // ──────────────────────────────────────────────────────────────────
-  // A4 — Truss vertical web at chord
+  // A4 — Truss vertical web at chord (single-screw variant)
+  //   Per FrameCAD FC-R3 left-side detail: truss web NESTS INSIDE the
+  //   top chord's open mouth (mouth faces down). Web has TrussChamfers
+  //   at both ends. 1× or 2× #10g screws per side at the joint.
   // ──────────────────────────────────────────────────────────────────
   {
     id: "A4",
     name: "A4 — Truss vertical web at chord",
     description:
-      "A vertical truss web meets a horizontal chord at 90°. The web has TrussChamfers at both ends (so it sits cleanly between top and bottom chords). The chord gets a LipNotch + InnerDimple at the web's centreline.",
+      "A vertical truss web NESTS INSIDE a horizontal top chord at 90°. The web's top tip enters through the chord's downward-facing open mouth. Web has TrussChamfers at both ends. The chord's lips are notched over the entry width and a screw fastens the joint per FrameCAD FC-R3 (left-side single-screw variant).",
     sticks: [
-      // Truss web — vertical, 600mm
+      // Truss web — vertical, 600mm. Top end at world Y=598 (just below
+      // chord's web inner face at Y≈599.25).
       {
         profile: PROFILE_70S41,
-        length: 600,
+        length: 598,
         position: [0, 0, 0],
         rotation: ROT_VERTICAL_Y,
         label: "Web (W)",
@@ -199,22 +391,90 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "TrussChamfer", end: "end" },
         ],
       },
-      // Chord — horizontal
+      // Chord — horizontal, mouth opens DOWNWARD so the web tip nests
+      // inside. Chord's web at world Y=600, length 2000 centred at X=0.
       {
         profile: PROFILE_70S41,
         length: 2000,
         position: [-1000, 600, 0],
-        rotation: ROT_HORIZONTAL_X,
-        label: "Chord",
+        rotation: ROT_HORIZONTAL_X_DOWN,
+        label: "Top chord",
         ops: [
           {
             type: "LipNotch",
-            spanStart: 980,
-            spanEnd: 1020,
+            spanStart: 975,
+            spanEnd: 1025,
             flangeSide: "both",
           },
           { type: "InnerDimple", pos: 1000 },
         ],
+      },
+    ],
+    joints: [
+      {
+        // Joint centre — at the web's tip
+        position: [0, 580, 0],
+        axis: [0, 0, 1],
+        spanAxis: [0, 1, 0],
+        halfThickness: 35,
+        screwsPerSide: 1,
+        label: "web-to-top-chord",
+      },
+    ],
+  },
+
+  // ──────────────────────────────────────────────────────────────────
+  // A4R — Reinforced truss joint (FC-R4 apex / heel detail)
+  //   Per FrameCAD FC-R4: high-load joint adds a flat connector plate
+  //   sandwiching the joint on BOTH sides of the truss, with multi-screw
+  //   cluster fastening through both members. Same nesting geometry as
+  //   A4 but with reinforcing hardware.
+  // ──────────────────────────────────────────────────────────────────
+  {
+    id: "A4R",
+    name: "A4R — Reinforced truss joint (FC-R4)",
+    description:
+      "Same nesting geometry as A4 but with REINFORCING CONNECTOR PLATES sandwiching the joint on both sides of the truss. 4 screws per side passing through plate + chord flange + web flange + (other) chord flange. Used at apex / heel joints where load concentration requires reinforcement per FrameCAD FC-R4.",
+    sticks: [
+      {
+        profile: PROFILE_70S41,
+        length: 598,
+        position: [0, 0, 0],
+        rotation: ROT_VERTICAL_Y,
+        label: "Web (W)",
+        ops: [
+          { type: "TrussChamfer", end: "start" },
+          { type: "TrussChamfer", end: "end" },
+        ],
+      },
+      {
+        profile: PROFILE_70S41,
+        length: 2000,
+        position: [-1000, 600, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
+        label: "Top chord",
+        ops: [
+          {
+            type: "LipNotch",
+            spanStart: 975,
+            spanEnd: 1025,
+            flangeSide: "both",
+          },
+          { type: "InnerDimple", pos: 1000 },
+        ],
+      },
+    ],
+    joints: [
+      {
+        position: [0, 580, 0],
+        axis: [0, 0, 1],
+        spanAxis: [0, 1, 0],
+        halfThickness: 35,
+        screwsPerSide: 4,
+        screwSpacing: 30,
+        connectorPlate: true,
+        plateSize: [120, 90],
+        label: "reinforced web-to-top-chord",
       },
     ],
   },
@@ -264,44 +524,62 @@ export const INTERACTIONS: InteractionConfig[] = [
   },
 
   // ──────────────────────────────────────────────────────────────────
-  // A6 — Wall W-brace at plate (≥28°)
+  // A6 — Wall W-brace at top plate (≥28°)
+  //   Per FrameCAD FC-W11: K-brace meets top plate at angle. Brace's
+  //   tip nests inside plate's open mouth. Chamfered + swaged at end.
   // ──────────────────────────────────────────────────────────────────
   {
     id: "A6",
     name: "A6 — Wall W-brace at plate (≥28°)",
     description:
-      "A wall W-brace at 30° from vertical meeting a sole/top plate. The brace gets a Chamfer (smaller wedge than TrussChamfer — wall version) plus a 41mm Swage and an InnerDimple at 10mm from the cut end. Plate gets the standard LipNotch + InnerDimple.",
+      "A wall W-brace at 60° from horizontal NESTS INSIDE a top plate. The brace's top end is swaged (profile compressed) over its last 50mm so it fits inside the plate's downward-facing open mouth, plus a Chamfer at the very tip. The plate gets a LipNotch over the brace's entry width and a #10g screw fastens the joint per FC-W11.",
     sticks: [
-      // Wall W-brace at 30° from vertical (60° from horizontal)
+      // Wall W-brace at 60° from horizontal, 1800mm. Tip at world
+      // (1800·cos60°, 1800·sin60°, 0) = (900, 1559, 0).
       {
         profile: PROFILE_70S41,
         length: 1800,
         position: [0, 0, 0],
-        rotation: rotForXYAngle((Math.PI / 180) * 60),
+        rotation: rotForAngledIntoPlate((Math.PI / 180) * 60, "above"),
         label: "Wall brace (W)",
         ops: [
+          // Chamfer at start (where brace meets bottom plate, not shown)
           { type: "Chamfer", end: "start" },
+          // Chamfer at tip (so brace's lip corner doesn't gouge plate's web)
           { type: "Chamfer", end: "end" },
-          { type: "Swage", spanStart: 1759, spanEnd: 1800 },
-          { type: "InnerDimple", pos: 1790 },
+          // Swage compresses brace's profile to fit inside plate cavity
+          { type: "Swage", spanStart: 1750, spanEnd: 1800 },
+          { type: "InnerDimple", pos: 1780 },
         ],
       },
-      // Plate — horizontal sole plate
+      // Top plate — horizontal, mouth opens DOWN. Position so plate web
+      // is at world Y = brace tip Y + clearance ≈ 1590.
       {
         profile: PROFILE_70S41,
         length: 2400,
-        position: [-200, 1559, 0], // 1800 × sin60° = 1559
-        rotation: ROT_HORIZONTAL_X,
-        label: "Plate",
+        position: [-300, 1590, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
+        label: "Top plate",
         ops: [
+          // Brace tip at world X=900 → plate-local z = 900-(-300) = 1200
           {
             type: "LipNotch",
-            spanStart: 1080,
-            spanEnd: 1120,
+            spanStart: 1175,
+            spanEnd: 1225,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1100 },
+          { type: "InnerDimple", pos: 1200 },
         ],
+      },
+    ],
+    joints: [
+      {
+        position: [880, 1568, 0],
+        axis: [0, 0, 1],
+        spanAxis: [0, 1, 0],
+        halfThickness: 35,
+        screwsPerSide: 1,
+        label: "wall-brace-to-plate",
       },
     ],
   },
@@ -385,21 +663,25 @@ export const INTERACTIONS: InteractionConfig[] = [
   },
 
   // ──────────────────────────────────────────────────────────────────
-  // D2 — B2B partner pair (KEY visual — sticks face each other)
+  // D2 — B2B partner pair (lip-to-lip, web facing out)
+  //   Per FrameCAD FC-W3: two studs face each other lip-to-lip with
+  //   webs facing OUT to opposite sides of the wall. Through-screws
+  //   alternate sides of the web at max 6" (152mm) spacing per FC-W3.
   // ──────────────────────────────────────────────────────────────────
   {
     id: "D2",
     name: "D2 — B2B partner pair (back-to-back, flange-on-flange)",
     description:
-      "Two studs paired flange-on-flange — lips touching down the centreline, webs facing OUT to opposite sides. The flange directions of the two sticks are MIRRORED (one default, one flipped). Both sticks get the same Web-hole pattern: 7 holes at 447mm spacing, anchored 38mm from each end, for the through-bolts that connect the pair. This is the signature 'partner pair' construction.",
+      "Two studs paired flange-on-flange — lips touching down the centreline, webs facing OUT to opposite sides of the wall. Per FrameCAD FC-W3, screws alternate sides of the web at max 6\" (152mm) spacing connecting the pair. (The Web-hole pattern shows where through-bolts pass through both webs in heavier-load configurations.)",
     sticks: [
-      // Stud A — web back at x=-41, flanges extending toward x=0 (lip at x=29)
+      // Stud A — flanges extending toward x=0 (lips at world x=-1.5)
+      // web at world x=-42.5
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [-43, 0, 0], // 41 (flange depth) + 2mm gap
+        position: [-42.5, 0, 0],
         rotation: ROT_VERTICAL_Y,
-        label: "Stud A (web facing -X)",
+        label: "Stud A (web -X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -410,14 +692,14 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Web", pos: 2700 - 38, diameter: 8 },
         ],
       },
-      // Stud B — flange flipped so its web is at x=+43, flanges extending toward x=0
+      // Stud B — flange flipped, web at world x=+42.5, lips at world x=+1.5
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [43, 0, 0],
+        position: [42.5, 0, 0],
         rotation: ROT_VERTICAL_Y,
         flangeDir: "flipped",
-        label: "Stud B (web facing +X)",
+        label: "Stud B (web +X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -427,6 +709,53 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Web", pos: 38 + 2235, diameter: 8 },
           { type: "Web", pos: 2700 - 38, diameter: 8 },
         ],
+      },
+    ],
+    // Screw rows down the joint at max 152mm (6") spacing — alternating
+    // sides of the web per FC-W3. Screws driven THROUGH both lips at the
+    // centreline. axis = world X (perpendicular to lips). For this scene
+    // we drop screws at 5 representative heights — visualisation, not
+    // a complete fastener set.
+    joints: [
+      {
+        position: [0, 200, 0],
+        axis: [1, 0, 0],
+        spanAxis: [0, 1, 0],
+        halfThickness: 30,
+        screwsPerSide: 1,
+        label: "B2B partner-pair screw 1",
+      },
+      {
+        position: [0, 700, 0],
+        axis: [1, 0, 0],
+        spanAxis: [0, 1, 0],
+        halfThickness: 30,
+        screwsPerSide: 1,
+        label: "B2B partner-pair screw 2",
+      },
+      {
+        position: [0, 1200, 0],
+        axis: [1, 0, 0],
+        spanAxis: [0, 1, 0],
+        halfThickness: 30,
+        screwsPerSide: 1,
+        label: "B2B partner-pair screw 3",
+      },
+      {
+        position: [0, 1700, 0],
+        axis: [1, 0, 0],
+        spanAxis: [0, 1, 0],
+        halfThickness: 30,
+        screwsPerSide: 1,
+        label: "B2B partner-pair screw 4",
+      },
+      {
+        position: [0, 2200, 0],
+        axis: [1, 0, 0],
+        spanAxis: [0, 1, 0],
+        halfThickness: 30,
+        screwsPerSide: 1,
+        label: "B2B partner-pair screw 5",
       },
     ],
   },
