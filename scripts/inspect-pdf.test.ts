@@ -47,31 +47,47 @@ describe("inspect bad PDF", () => {
       try {
         const decoded = zlib.inflateSync(s);
         const text = decoded.toString("latin1");
-        // Pull frame name from Tj operators — written via drawText
-        // which uses Tj/TJ. Look for "(Frame:..." pattern, possibly with
-        // hex encoding. Also try simple ASCII match.
-        const frameMatch =
-          text.match(/Frame:\s*([A-Za-z0-9_\-]+)/) ??
-          text.match(/\(([^)]*N\d+[^)]*)\)/);
-        const matches = [...text.matchAll(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+m\b/g)];
-        if (matches.length > 5) {
+        const moves = [...text.matchAll(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+m\b/g)];
+        const lines = [...text.matchAll(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+l\b/g)];
+        if (moves.length > 5) {
           paged++;
-          const xs = matches.map(m => Number(m[1]));
-          const ys = matches.map(m => Number(m[2]));
-          const sortedX = [...new Set(xs.map(x => Math.round(x * 10) / 10))].sort((a,b)=>a-b);
-          const sortedY = [...new Set(ys.map(y => Math.round(y * 10) / 10))].sort((a,b)=>a-b);
-          // Studs typically dominate moveto count for tall frames; if the
-          // X spread is small but Y spread is large, suspect stacking.
-          const xSpread = sortedX[sortedX.length-1]! - sortedX[0]!;
-          const ySpread = sortedY[sortedY.length-1]! - sortedY[0]!;
-          const tallNarrow = xSpread > 0 && ySpread > 0 && (ySpread / xSpread > 5);
-          // Stripped narrowness — only flag when the studs are clustered
-          // i.e. ratio of stick X-spread to frame Y-spread > 5
-          const noTitle = sortedX.filter(x => x > 50);  // strip title block
-          const noTitleSpread = noTitle.length > 1 ? noTitle[noTitle.length-1]! - noTitle[0]! : 0;
-          const stickStack = ySpread > 200 && noTitleSpread < ySpread / 3;
-          if (stickStack || sortedX.length <= 25) {
-            console.log(`page ${paged} [${frameMatch?.[1] ?? "?"}]: mv=${matches.length} xSpread=${noTitleSpread.toFixed(0)}pt (incl-title=${xSpread.toFixed(0)}) ySpread=${ySpread.toFixed(0)}pt ${stickStack ? "★STACK" : ""}`);
+          // Only sample STICK polygons: groups of (m, l, l, l, h) where
+          // the 4 points form a rectangle. Approach: scan moveto and the
+          // next 3 lineto pairs, treat as a polygon.
+          const ops: { x: number; y: number; op: string }[] = [];
+          for (const m of [...text.matchAll(/(-?\d+\.?\d*)\s+(-?\d+\.?\d*)\s+(m|l)\b/g)]) {
+            ops.push({ x: Number(m[1]), y: Number(m[2]), op: m[3]! });
+          }
+          // Group polygons: m followed by lineTos until next m
+          const polys: { xs: number[]; ys: number[] }[] = [];
+          let cur: { xs: number[]; ys: number[] } | null = null;
+          for (const o of ops) {
+            if (o.op === "m") {
+              if (cur) polys.push(cur);
+              cur = { xs: [o.x], ys: [o.y] };
+            } else if (cur) {
+              cur.xs.push(o.x);
+              cur.ys.push(o.y);
+            }
+          }
+          if (cur) polys.push(cur);
+          // Stick polygons: 4 corners, AND area larger than marker triangle.
+          const sticks = polys.filter(p => {
+            if (p.xs.length !== 4) return false;
+            const w = Math.max(...p.xs) - Math.min(...p.xs);
+            const h = Math.max(...p.ys) - Math.min(...p.ys);
+            // Real sticks are at least ~10pt long; markers are <8pt.
+            return Math.max(w, h) > 12;
+          });
+          // Compute the X "centroid" (average) of each polygon.
+          const stickXs = sticks.map(p => (Math.min(...p.xs) + Math.max(...p.xs)) / 2);
+          // For typical wall frames, expect ~5-15 sticks with distinct X.
+          const uniqStickXs = new Set(stickXs.map(x => Math.round(x * 10) / 10));
+          // Page is "stacked" if there are >5 stick polys but <3 unique X.
+          const stacked = sticks.length >= 3 && uniqStickXs.size <= Math.ceil(sticks.length / 3);
+          if (stacked || (sticks.length >= 5 && uniqStickXs.size <= 4)) {
+            console.log(`page ${paged}: ${sticks.length} stick polys, ${uniqStickXs.size} unique X centroids${stacked ? " ★STACKED" : ""}`);
+            console.log(`  stick X centroids: ${[...uniqStickXs].sort((a,b)=>a-b).join(", ")}`);
           }
         }
       } catch (e) {
