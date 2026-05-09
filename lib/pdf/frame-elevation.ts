@@ -805,14 +805,15 @@ function drawStick(
   // perp = (-dirY, dirX) (90° CCW of stick direction).
   //
   // Default (interior studs): FrameCAD's `flipped` attribute drives the
-  // C-section opening direction. Empirically (Scott, 2026-05-09 — every
-  // interior stud was facing the wrong way under the previous mapping):
-  //   flipped=false → lips on -perp side
-  //   flipped=true  → lips on +perp side
-  // Web sits opposite the lip side. End-studs and opening jambs are NOT
-  // affected by this — they're driven by the structural position override
-  // in computeWebOverrides (web always faces frame interior regardless of
-  // flipped).
+  // C-section opening direction. Convention (traced through HG260002 N1
+  // S1 — see scripts/trace-s1-n1.ts):
+  //
+  //   flipped=false → lips on +perp side (LEFT for vertical stud going up)
+  //   flipped=true  → lips on -perp side (RIGHT for vertical stud going up)
+  //
+  // Web sits opposite the lip side. This mapping is consistent with the
+  // structural override for end studs: leftmost stud has flipped=false in
+  // the source XML AND the override forces lipSign=+1 — both agree.
   //
   // Override: webOverrides Map keyed by stick.name; +1 = lips on +perp,
   // -1 = lips on -perp. See computeWebOverrides for the structural
@@ -823,7 +824,7 @@ function drawStick(
   // doesn't double-line their long edges either.
   const studStyle = wallStyle && isStudStyleStick(m);
   if (studStyle) {
-    const fallback = stick.flipped ? +1 : -1;
+    const fallback = stick.flipped ? -1 : +1;
     const lipSign: 1 | -1 = webOverrides.get(stick.name) ?? (fallback as 1 | -1);
 
     // ASYMMETRIC OUTLINE — orientation rule (Scott, 2026-05-09):
