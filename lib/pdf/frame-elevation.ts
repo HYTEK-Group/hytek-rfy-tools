@@ -107,6 +107,34 @@ export interface PdfOptions {
    * the frameTypes pattern. Used in the title block "Panel RL" field.
    */
   frameElevations?: Map<string, number>;
+  /**
+   * Optional frameName → cross-frame join references (which other frames
+   * meet this one at its left/right ends). Computed in framecadImportToRfy
+   * by matching envelope-bottom corner endpoints in 3D world space.
+   * Renders as `<<< Joins L4` and `Joins N3 >>>` in the footer; absent
+   * sides render as a literal `?`.
+   */
+  frameJoins?: Map<string, { left?: string; right?: string }>;
+  /**
+   * Optional engineering specs that don't live in the per-job framecad
+   * XML (they come from the FrameCAD configuration .dat file). Caller
+   * supplies them so the PDF footer matches what Detailer would print.
+   * Defaults match HYTEK's typical Australian residential setup.
+   */
+  specs?: {
+    /** FrameCAD configuration file name, e.g. "FC_Textor_Qld". */
+    systemName?: string;
+    /** Wind speed in m/s, e.g. 45. */
+    windSpeed?: number;
+    /** Design code reference, e.g. "AS/NZS 4600:2018". */
+    designCode?: string;
+    /** Loading code reference, e.g. "AS/NZS 1170:2021". */
+    loadingCode?: string;
+    /** Material grade reduction, e.g. "Not Applied". */
+    materialGradeReduction?: string;
+    /** Compass direction the wall faces, e.g. "E-W" or "N-S". */
+    direction?: string;
+  };
 }
 
 /**
@@ -127,6 +155,15 @@ export async function generateFramePdf(
     frameFasteners: options.frameFasteners ?? new Map(),
     frameLabels: options.frameLabels ?? new Map(),
     frameElevations: options.frameElevations ?? new Map(),
+    frameJoins: options.frameJoins ?? new Map(),
+    specs: {
+      systemName: options.specs?.systemName ?? "FC_Textor_Qld",
+      windSpeed: options.specs?.windSpeed ?? 45,
+      designCode: options.specs?.designCode ?? "AS/NZS 4600:2018",
+      loadingCode: options.specs?.loadingCode ?? "AS/NZS 1170:2021",
+      materialGradeReduction: options.specs?.materialGradeReduction ?? "Not Applied",
+      direction: options.specs?.direction ?? "E-W",
+    },
   };
 
   const pdf = await PDFDocument.create();
@@ -1402,14 +1439,20 @@ function drawFooter(
   // Header status only if frame has a HeadPlate stick (codec usage="HeadPlate"
   // → stick.usage === "HeadPlate").
   const hasHeadPlate = frame.sticks.some(st => /headplate|head/i.test(st.usage ?? ""));
+  // Cross-frame joins — populated by framecadImportToRfy via envelope-edge
+  // matching in 3D world space. Falls back to "?" when no neighbour found
+  // (frame is at a building extreme).
+  const joins = opts.frameJoins.get(frame.name);
+  const leftJoin = joins?.left ?? "?";
+  const rightJoin = joins?.right ?? "?";
   const row1Parts = [
-    "<<< Joins ?",
+    `<<< Joins ${leftJoin}`,
     "Quantity Required = 1",
     `Mark as ${frame.name}`,
     "Stud Status = Passed",
   ];
   if (hasHeadPlate) row1Parts.push("Header Status = Passed");
-  row1Parts.push("Joins ? >>>");
+  row1Parts.push(`Joins ${rightJoin} >>>`);
   const row1Text = row1Parts.join("     ");
   page.drawText(row1Text, {
     x: x0 + (x1 - x0) / 2 - row1Text.length * 2.4,
@@ -1420,20 +1463,32 @@ function drawFooter(
   });
 
   // ─ Row 2: Specs grid ───────────────────────────────────────────────────
+  // Wall Type derives from frame.type (when available via opts.frameTypes):
+  //   InternalWall → "Non Load Bearing"
+  //   ExternalWall → "Load Bearing"
+  //   anything else (Truss/Floor/RoofPanel) falls through to a generic label
+  // Other specs come from opts.specs (FrameCAD config-file-level constants
+  // that don't live in the per-job XML).
   const row2Y = y1 - 26;
   const elevationMm = opts.frameElevations.get(frame.name) ?? 0;
   const wMm = frame.length ?? 0;
   const hMm = frame.height ?? 0;
+  const frameType = opts.frameTypes.get(frame.name) ?? "";
+  const wallType = /externalwall/i.test(frameType)
+    ? "Load Bearing"
+    : /internalwall/i.test(frameType)
+      ? "Non Load Bearing"
+      : frameType || "Non Load Bearing";
   const specs = [
-    `System Name: FC_Textor_Qld`,
-    `Wall Type: Non Load Bearing`,
-    `Wind Speed: 45`,
-    `Design Code: AS/NZS 4600:2018`,
-    `Loading Code: AS/NZS 1170:2021`,
-    `Material Grade Reduction: Not Applied`,
+    `System Name: ${opts.specs.systemName}`,
+    `Wall Type: ${wallType}`,
+    `Wind Speed: ${opts.specs.windSpeed}`,
+    `Design Code: ${opts.specs.designCode}`,
+    `Loading Code: ${opts.specs.loadingCode}`,
+    `Material Grade Reduction: ${opts.specs.materialGradeReduction}`,
     `Panel RL: ${Math.round(elevationMm)}`,
     `Envelope: ${Math.round(hMm)}h x ${Math.round(wMm)}w`,
-    `Direction: E-W`,
+    `Direction: ${opts.specs.direction}`,
   ];
   page.drawText(specs.join("   |   "), {
     x: x0 + 6, y: row2Y, size: 6.5, font, color: rgb(0, 0, 0),

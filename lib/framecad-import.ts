@@ -822,6 +822,11 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
   /** frameName → frame elevation (Z floor) in mm. Used by the PDF
    *  title block "Panel RL" field. */
   frameElevations: Map<string, number>;
+  /** frameName → which other frames join its left and right edges in 3D
+   *  world space. Empty/undefined means no neighbour found (frame is at
+   *  a building extreme). Used by the PDF footer's `<<< Joins X` /
+   *  `Joins Y >>>` callouts. */
+  frameJoins: Map<string, { left?: string; right?: string }>;
 } {
   const project = framecadImportToParsedProject(xmlText);
   // Default to lenient=true: roof panels (RP) and other non-rectangular envelopes
@@ -881,6 +886,50 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
     }
   }
 
+  // Cross-frame Joins — match envelope edges in 3D world space across
+  // every pair of frames. For each frame, derive its "left" and "right"
+  // bottom-corner endpoints from the envelope (= the base plate's two
+  // ends) and search every other frame for one whose envelope shares
+  // an endpoint with that base corner (within JOIN_TOLERANCE_MM).
+  //
+  // Why bottom-corner endpoints, not the full envelope: walls always
+  // join end-to-end at their bottom plate (where the slab interface
+  // sits). Using the bottom corners disambiguates corner joins from
+  // mid-wall butt joints. Tolerance is generous (50mm) because Detailer
+  // rounds coordinates and joining frames may be ±half-flange-width
+  // apart.
+  const frameJoins = new Map<string, { left?: string; right?: string }>();
+  const JOIN_TOLERANCE_MM = 50;
+  type FrameCorners = { name: string; bottomA: Vec3; bottomB: Vec3 };
+  const allFrames: FrameCorners[] = [];
+  for (const plan of rawPlans) {
+    for (const frame of plan.frames) {
+      if (!frame.envelope) continue;
+      // Bottom edge of envelope = the two vertices with lowest Z (the
+      // floor-level corners). Detailer's envelopes are 4-vertex
+      // rectangles in 3D; sort by Z and take the two lowest.
+      const sorted = [...frame.envelope].sort((a, b) => a.z - b.z);
+      allFrames.push({ name: frame.name, bottomA: sorted[0]!, bottomB: sorted[1]! });
+    }
+  }
+  const close = (a: Vec3, b: Vec3) =>
+    Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= JOIN_TOLERANCE_MM;
+  for (const fc of allFrames) {
+    const joins: { left?: string; right?: string } = {};
+    for (const other of allFrames) {
+      if (other.name === fc.name) continue;
+      // Does the other frame share fc.bottomA?
+      if (close(other.bottomA, fc.bottomA) || close(other.bottomB, fc.bottomA)) {
+        joins.left = other.name;
+      }
+      // Or fc.bottomB?
+      if (close(other.bottomA, fc.bottomB) || close(other.bottomB, fc.bottomB)) {
+        joins.right = other.name;
+      }
+    }
+    if (joins.left || joins.right) frameJoins.set(fc.name, joins);
+  }
+
   return {
     rfy: result.rfy,
     xml: result.xml,
@@ -894,6 +943,7 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
     frameFasteners,
     frameLabels,
     frameElevations,
+    frameJoins,
     client: project.client,
     date: project.date,
   };

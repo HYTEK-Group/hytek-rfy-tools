@@ -101,6 +101,7 @@ export async function POST(req: Request) {
       frameFasteners: result.frameFasteners,
       frameLabels: result.frameLabels,
       frameElevations: result.frameElevations,
+      frameJoins: result.frameJoins,
     });
     const pdfName = `${safeJob}_frames.pdf`;
     zip.file(pdfName, new Uint8Array(pdfBytes));
