@@ -1,0 +1,108 @@
+{
+  "entries": [
+    {
+      "name": "Door opening",
+      "trigger": "An opening in the wall XML with door-class dimensions (typical 2055 × 935 mm).",
+      "members": [
+        "2 × TRIMSTUD (Ts) — full height, flank the opening.",
+        "2 × JACKSTUD lower (J) — head height to slab.",
+        "2 × JACKSTUD upper (J) — top plate to head.",
+        "1 × HEADPLATE (H) — spans opening at head height.",
+        "Optional 1 × H2 paired header (box configuration).",
+        "FILLER rows near braces if a brace bay is interrupted.",
+        "No SILL (door has no sill)."
+      ],
+      "operations": [
+        "Trim studs get Swage at head/sill heights (additional to the standard stud pattern).",
+        "Header gets the paired-dimple rule (two dimples per LipNotch)."
+      ]
+    },
+    {
+      "name": "Window opening",
+      "trigger": "Opening with window-class dimensions and a sill height (typical 1000 mm or 1250 mm).",
+      "members": [
+        "2 × TRIMSTUD (Ts).",
+        "2 × JACKSTUD upper (head to top).",
+        "2 × JACKSTUD lower (sill to slab).",
+        "Optional 2 × short studs above sill (in opening width).",
+        "1 × SILL (L) at opening bottom.",
+        "1 × HEADPLATE (H).",
+        "FILLER rows where applicable."
+      ],
+      "operations": [
+        "Standard per-stick rules for each member.",
+        "Header gets paired-dimple rule when paired with H2."
+      ]
+    },
+    {
+      "name": "AC / utility opening",
+      "trigger": "Opening with small dimensions (typical 440 × 670 mm) on an otherwise blank wall.",
+      "members": [
+        "Standard wall studs (no trim/jack stud overhead).",
+        "A specially-named nog: AC Ng1 at AC unit height."
+      ],
+      "operations": [
+        "AC Ng1 follows standard nog rules at its mounting height."
+      ]
+    },
+    {
+      "name": "Brace bay",
+      "trigger": "A wall panel section where two diagonal braces (Br1/Br2 or W) cross to form an X.",
+      "members": [
+        "2 × BRACE (Br) at the bay's top-left to bottom-right and top-right to bottom-left diagonals."
+      ],
+      "operations": [
+        "Each brace gets the wall-W pattern (Chamfer + Swage 41 + InnerDimple @10).",
+        "The plates above and below the bay get LipNotch + InnerDimple at the brace meeting points (per Wall-W-at-plate interaction)."
+      ]
+    },
+    {
+      "name": "B2B partner pair",
+      "trigger": "Two studs at the same x-position (within 1 mm) in the same frame, mirrored.",
+      "members": [
+        "2 × stud paired flange-on-flange."
+      ],
+      "operations": [
+        "See B2B partner pair interaction (Catalogue B). Web @spacing pattern fires on both studs."
+      ]
+    },
+    {
+      "name": "TIN linear truss panel",
+      "trigger": "Plan name contains '-TIN-' or '-LIN-'.",
+      "members": [
+        "2 × top chord (T), 2 × bottom chord (B) (or 1 of each for inline trusses).",
+        "N × W (truss webs, usage='web') — verticals and diagonals.",
+        "0 to 4 × V (truss verticals, FJ joist style)."
+      ],
+      "operations": [
+        "All truss-Ws get TrussChamfer at both ends (per Truss-vertical-at-chord and Truss-diagonal-at-chord interactions).",
+        "Centerline crossings of webs (where two W's meet between chords) get a 3-hole bolt-cluster pattern.",
+        "Bottom chords get reduced operation set vs top chords (no service holes, simplified)."
+      ]
+    },
+    {
+      "name": "TB2B back-to-back truss panel",
+      "trigger": "Plan name contains '-TB2B-'.",
+      "members": [
+        "Same as TIN but chords are paired (B2B pattern).",
+        "Box pieces between chord pairs."
+      ],
+      "operations": [
+        "Centerline crossings get Web @pt instead of just InnerDimple.",
+        "Box pieces get ScrewHoles clusters.",
+        "Header/chord cap-stacks fire."
+      ]
+    },
+    {
+      "name": "Roof panel (flat)",
+      "trigger": "Plan name contains '-RP-' (and roof is flat — the only tested case).",
+      "members": [
+        "Top chord, bottom chord, intermediate verticals, end blocking pieces (Bx)."
+      ],
+      "operations": [
+        "Top/bottom plates get Chamfer + InnerDimple @10 instead of standard Swage at end caps (the RP-specific rule).",
+        "Studs get LipNotch 56..101 + InnerDimple @78.5 at end caps."
+      ]
+    }
+  ]
+}
