@@ -501,13 +501,44 @@ function drawStick(
     0.5
   );
 
-  // C-section orientation marker (wall plans only — operator needs to know
-  // which way the open side of the C-channel faces when loading the F300i).
-  // Matches Detailer's elevation convention: a small bracket symbol drawn
-  // outside the start (lower) end of the stud, opening in the direction of
-  // the lip. Direction is derived from `stick.flipped`.
+  // Wall-stud orientation indicators — match Detailer's elevation convention:
+  //   1. Web edge (closed back of the C-section) drawn THICKER than the lip
+  //      edge. Operator can see at a glance which way the C is facing on
+  //      the assembled wall.
+  //   2. Small C-section symbol below the start end, opening toward the
+  //      LIPS (= away from the web).
+  //
+  // The two markers always agree: web side and lip side are opposite faces
+  // of the stick, so their directions are slaved to a single sign.
+  //
+  // Sign convention (verified against the rectangle CCW corner ordering
+  // produced by buildStickElevationGraphics in the codec):
+  //   corners[0] = start + perp × half     ←  +perp side
+  //   corners[1] = end   + perp × half     ←  +perp side
+  //   corners[2] = end   - perp × half     ←  -perp side
+  //   corners[3] = start - perp × half     ←  -perp side
+  // where perp = (-dirY, dirX) — i.e. 90° CCW of stick direction.
+  //
+  // FrameCAD `flipped=false` → lips on +perp side (open faces +perp).
+  // FrameCAD `flipped=true`  → lips on -perp side (open faces -perp).
+  // Web sits on the OPPOSITE side. If this turns out to be backwards
+  // against actual operator expectation, flip the `lipSign` line below
+  // and both indicators move in lockstep.
   if (studOutlineOnly) {
-    drawCSectionMarker(page, m, stick.flipped, layout);
+    const lipSign = stick.flipped ? -1 : +1;
+    // Web edge = the long edge OPPOSITE the lip side.
+    // lipSign=+1 → lips on +perp (edge 0-1) → web on -perp (edge 2-3)
+    // lipSign=-1 → lips on -perp (edge 2-3) → web on +perp (edge 0-1)
+    const webEdge = lipSign === +1
+      ? { a: polyPts[2]!, b: polyPts[3]! }
+      : { a: polyPts[0]!, b: polyPts[1]! };
+    page.drawLine({
+      start: webEdge.a,
+      end: webEdge.b,
+      thickness: 1.4,                       // ~3× the regular outline (0.5pt)
+      color: rgb(0.1, 0.1, 0.1),
+    });
+    drawCSectionMarker(page, m, lipSign, layout);
   }
 
   // Stick label at midpoint.
@@ -736,79 +767,65 @@ function drawOverallDimensions(
  * symbol that tells the operator which way the open side of the
  * C-channel faces (lip direction).
  *
- * Geometry:
- *   - Web on one side (vertical line)
- *   - Two flanges (horizontal lines)
- *   - Open side (no line) = where the lip/return is
- *   - `flipped=false` → opens RIGHT (lip on right, web on left of marker)
- *   - `flipped=true`  → opens LEFT  (lip on left,  web on right of marker)
+ * Geometry (3-segment polyline forming a bracket):
+ *   - Web on one side (vertical line, closed back of the C)
+ *   - Two flanges extending toward the lips (top + bottom horizontal lines)
+ *   - Open side (no line) = where the lips face
  *
- * Placed below the start end of the stick (following the start→end vector
- * backwards) so it sits clear of the stick's outline and doesn't overlap
- * tooling marks. Size is fixed in PDF points so the marker reads at any
- * page scale (small frames don't get a microscopic symbol).
+ * `lipSign` parameter: +1 if lips face +perp (90° CCW of stick direction),
+ * -1 if lips face -perp. Caller derives this from `stick.flipped` and
+ * passes the SAME sign used to pick the thicker web edge on the stick
+ * outline — guaranteeing the two indicators always agree.
+ *
+ * Placed at the stick's start end, offset OUTSIDE the stick by OFFSET_PT
+ * so it sits clear of the outline and doesn't overlap tooling marks. Size
+ * is fixed in PDF points so the marker reads at any page scale.
  */
 function drawCSectionMarker(
   page: PDFPage,
   m: Midline,
-  flipped: boolean,
+  lipSign: 1 | -1,
   layout: PageLayout,
 ): void {
   const { s, ox, oy } = layout;
 
   // Marker size in PDF points — fixed visual size regardless of frame scale.
-  const SIZE = 7;             // overall bracket height (web length)
-  const FLANGE = SIZE * 0.6;  // flange-arm length
-  const OFFSET_PT = 12;       // gap between stick end and marker centre
+  const SIZE = 7;             // overall bracket height (web length, in stick-local "along" axis)
+  const FLANGE = SIZE * 0.6;  // flange-arm length (lips direction)
+  const OFFSET_PT = 12;       // gap between stick start and marker centre
 
   // Direction along the stick (start → end) and its perpendicular.
   const dirX = Math.cos(m.angle);
   const dirY = Math.sin(m.angle);
 
-  // Translate the start point to PDF coords, then step OFFSET_PT in the
-  // direction OPPOSITE to dir (i.e. away from the stick interior).
-  const startPt = {
-    x: ox + m.start.x * s - dirX * OFFSET_PT,
-    y: oy + m.start.y * s - dirY * OFFSET_PT,
-  };
+  // Place marker centre OUTSIDE the start end (one OFFSET_PT step opposite
+  // the stick's forward direction). For a vertical stud this puts the
+  // marker BELOW the bottom of the stud.
+  const cx = ox + m.start.x * s - dirX * OFFSET_PT;
+  const cy = oy + m.start.y * s - dirY * OFFSET_PT;
 
-  // For a vertical stud, dir ≈ (0, 1) — perpendicular is (-1, 0). Flipped
-  // mirrors the marker around the stick's longitudinal axis. We draw the
-  // marker in stick-local space (web vertical, flanges horizontal) then
-  // rotate to match the stick angle so it stays oriented with the stud.
-  const sign = flipped ? -1 : 1;
+  // Bracket points in stick-LOCAL coords (lx = along stick, ly = across):
+  //   top-flange-tip = (+halfWeb, lipSign*FLANGE)
+  //   web-top        = (+halfWeb, 0)
+  //   web-bot        = (-halfWeb, 0)
+  //   bot-flange-tip = (-halfWeb, lipSign*FLANGE)
+  // Polyline goes top-flange-tip → web-top → web-bot → bot-flange-tip,
+  // which is the 3 strokes (top flange, web, bottom flange) of the bracket.
+  // The "open" side faces +lipSign × perp = the lip direction. ✓
   const halfWeb = SIZE / 2;
-
-  // Bracket points in stick-LOCAL coords:
-  //   local x = ALONG stick (longitudinal — same as midline direction)
-  //   local y = ACROSS stick (perpendicular to midline)
-  // The web sits on local-y = -sign*halfWeb (the closed side); flanges
-  // run +sign*FLANGE in local-y from each end of the web.
-  const localPts: { x: number; y: number }[] = [
-    { x: -halfWeb, y: -sign * (FLANGE * 0) },  // (we'll redo below — clearer to spell out the 4 corners)
-  ];
-  // Actually simpler: 4-point polyline = top-flange-tip → web-top → web-bot → bot-flange-tip
-  // In local coords (along, across):
-  //   web-top   = (+halfWeb,  0)        — top of web (closer to stick)
-  //   web-bot   = (-halfWeb,  0)        — bottom of web (far from stick)
-  //   top-flange-tip = (+halfWeb, sign*FLANGE)  — flange opens in +sign direction
-  //   bot-flange-tip = (-halfWeb, sign*FLANGE)
   const pts = [
-    { lx: +halfWeb, ly: sign * FLANGE },  // top-flange tip
-    { lx: +halfWeb, ly: 0 },              // web top
-    { lx: -halfWeb, ly: 0 },              // web bot
-    { lx: -halfWeb, ly: sign * FLANGE },  // bot-flange tip
-  ].map(({ lx, ly }) => {
+    { lx: +halfWeb, ly: lipSign * FLANGE },
+    { lx: +halfWeb, ly: 0 },
+    { lx: -halfWeb, ly: 0 },
+    { lx: -halfWeb, ly: lipSign * FLANGE },
+  ].map(({ lx, ly }) => ({
     // Rotate (lx, ly) into PDF coords using stick angle, then translate
-    // to startPt. local-x maps along (dirX, dirY); local-y maps along
-    // (-dirY, dirX) (90° CCW perpendicular).
-    return {
-      x: startPt.x + lx * dirX + ly * (-dirY),
-      y: startPt.y + lx * dirY + ly * dirX,
-    };
-  });
+    // to (cx, cy). local-x maps along (dirX, dirY); local-y maps along
+    // (-dirY, dirX) (90° CCW perpendicular = +perp).
+    x: cx + lx * dirX + ly * (-dirY),
+    y: cy + lx * dirY + ly * dirX,
+  }));
 
-  // Stroke the bracket (3 connected segments — top-flange, web, bot-flange).
   for (let i = 0; i < pts.length - 1; i++) {
     page.drawLine({
       start: pts[i]!,
