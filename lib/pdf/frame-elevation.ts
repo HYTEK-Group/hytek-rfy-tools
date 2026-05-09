@@ -644,12 +644,13 @@ function drawFramePage(
     drawDimChains(page, frame, bb, layout, font);
   }
 
-  // Tooling legend — small key at the bottom-right showing the symbol +
-  // colour + name of every tool type used on this frame's sticks. Lets
-  // the operator decode any coloured marker on the drawing without
-  // memorising the palette.
+  // Tooling legend — horizontal strip across the top, just under the BOM
+  // box. Shows the symbol + colour + name of every tool type used on this
+  // frame's sticks. Lets the operator decode any coloured marker on the
+  // drawing without memorising the palette. Reserved space comes from
+  // LEGEND_STRIP_HEIGHT_PT in the drawY1 calculation above.
   if (opts.showToolingMarks) {
-    drawToolingLegend(page, frame, layout, font, W);
+    drawToolingLegend(page, frame, layout, font, W, H);
   }
 
   // 3-row footer: Joins/Quantity/Status, Specs grid, Dwg/Client/Job.
@@ -842,15 +843,19 @@ function drawStick(
     //
     // lipSign=+1 → lips on +perp (edge 0-1)  → web on -perp (edge 2-3)  → DOUBLE 2-3
     // lipSign=-1 → lips on -perp (edge 2-3)  → web on +perp (edge 0-1)  → DOUBLE 0-1
-    const webEdgeIdx: [number, number] = lipSign === +1 ? [2, 3] : [0, 1];
+    // FIX (Scott, 2026-05-09 N1 zoom screenshot): doubled line was landing
+    // on the LIP edge under the previous mapping. Swapped to put it on the
+    // SAME physical side as the C-marker mouth (web side). Both indicators
+    // now point at the closed back of the C, single source of truth.
+    const webEdgeIdx: [number, number] = lipSign === +1 ? [0, 1] : [2, 3];
     const dirX = Math.cos(m.angle);
     const dirY = Math.sin(m.angle);
     // Doubled line sits INSIDE the web edge (between web edge and the
-    // stick's centerline). For lipSign=+1, web edge is on -perp side,
-    // so "inward from web edge" = +perp = +lipSign × perp.
+    // stick's centerline). For lipSign=+1, web edge is now on +perp side
+    // (post-swap), so "inward from web edge" = -perp = -lipSign × perp.
     const perpX = -dirY, perpY = dirX;            // +perp (90° CCW)
-    const inwardX = lipSign * perpX;
-    const inwardY = lipSign * perpY;
+    const inwardX = -lipSign * perpX;
+    const inwardY = -lipSign * perpY;
     const OFFSET_PT = 0.8;
     const a0 = polyPts[webEdgeIdx[0]]!;
     const a1 = polyPts[webEdgeIdx[1]]!;
@@ -1360,6 +1365,7 @@ function drawToolingLegend(
   layout: PageLayout,
   font: any,
   W: number,
+  H: number,
 ): void {
   // Collect every distinct ToolType present on this frame's sticks.
   const present = new Set<ToolType>();
@@ -1381,68 +1387,63 @@ function drawToolingLegend(
   ];
   const rows = ORDER.filter(t => present.has(t));
 
-  // Box dimensions in pt.
-  const ROW_HEIGHT = 12;
-  const PADDING = 4;
-  const BOX_WIDTH = 110;
-  const BOX_HEIGHT = rows.length * ROW_HEIGHT + PADDING * 2;
-  const SWATCH_X_OFFSET = PADDING + 8;
-  const LABEL_X_OFFSET = PADDING + 20;
+  // Horizontal strip layout (Scott, 2026-05-09 — moved from bottom-right
+  // corner box to a horizontal strip across the top, just under the BOM
+  // box). Reserved space comes from LEGEND_STRIP_HEIGHT_PT in the
+  // drawY1 calculation in drawFramePage.
+  const stripX0 = MARGIN_PT;
+  const stripX1 = W - MARGIN_PT;
+  const stripY1 = H - MARGIN_PT - TOP_BOM_HEIGHT_PT;          // top of strip
+  const stripY0 = stripY1 - LEGEND_STRIP_HEIGHT_PT;            // bottom of strip
+  const stripH = LEGEND_STRIP_HEIGHT_PT;
+  const stripW = stripX1 - stripX0;
 
-  // Pin to PAGE-absolute coordinates, not layout-relative.
-  // layout.oy is the frame-bbox-aware origin (mm → pt) and can be very
-  // negative when bbox.minY > 0 in projection space (e.g. truss frames
-  // at high Y), which previously dragged the legend below page bottom
-  // and tripped the "moveTos within page bounds" regression test.
-  // The footer band occupies y ∈ [MARGIN_PT .. MARGIN_PT + FOOTER_HEIGHT_PT].
-  // Sit the legend immediately above it, hugging the right margin.
-  const boxX = W - MARGIN_PT - BOX_WIDTH;
-  const boxY = MARGIN_PT + FOOTER_HEIGHT_PT + 6;
-  // (suppress unused-param lint for `layout` — we keep it in the signature
-  // for future use but don't currently consult it.)
-  void layout;
-
-  // Background — light yellow tint matching the title block, lets the
-  // legend stand out without overwhelming the line work.
+  // Background — light yellow tint matching the title block.
   page.drawRectangle({
-    x: boxX,
-    y: boxY,
-    width: BOX_WIDTH,
-    height: BOX_HEIGHT,
+    x: stripX0,
+    y: stripY0,
+    width: stripW,
+    height: stripH,
     color: rgb(1, 0.98, 0.85),
     borderColor: rgb(0.6, 0.6, 0.6),
     borderWidth: 0.5,
   });
 
-  // Title row (above the rows, just inside top of box).
-  page.drawText("Tooling key", {
-    x: boxX + PADDING,
-    y: boxY + BOX_HEIGHT - PADDING - 8,
-    size: 7,
+  // "Tooling key" prefix label at the very left of the strip.
+  const PREFIX = "Tooling key:";
+  const prefixWidth = 60;
+  page.drawText(PREFIX, {
+    x: stripX0 + 6,
+    y: stripY0 + (stripH - 8) / 2,
+    size: 8,
     font,
-    color: rgb(0.2, 0.2, 0.2),
+    color: rgb(0.15, 0.15, 0.15),
   });
 
-  // Rows — symbol swatch at left, label at right. Iterate top-down so
-  // the first tool in ORDER is at the top of the box.
-  let cy = boxY + BOX_HEIGHT - PADDING - ROW_HEIGHT - 6;
-  for (const tool of rows) {
+  // Each tool entry: swatch (drawMarker) + label, distributed across the
+  // remaining strip width. Cells are equal width — keeps spacing
+  // predictable regardless of how many tools the frame uses.
+  const entryX0 = stripX0 + prefixWidth + 4;
+  const entryW = (stripX1 - entryX0) / Math.max(rows.length, 1);
+  const cy = stripY0 + stripH / 2;
+  for (let i = 0; i < rows.length; i++) {
+    const tool = rows[i]!;
     const color = TOOL_COLOR[tool];
-    const swatchPt = { x: boxX + SWATCH_X_OFFSET, y: cy + 3 };
-    // Draw the swatch using the same glyph the renderer puts on the
-    // stick — share `drawMarker` so the legend visually matches the
-    // marker exactly. Use a fixed swatch radius (3pt).
-    drawMarker(page, swatchPt, tool, 3, color);
-    // Label.
+    const cellX = entryX0 + i * entryW;
+    // Swatch on the left of the cell.
+    drawMarker(page, { x: cellX + 6, y: cy }, tool, 3, color);
+    // Label to the right of the swatch.
     page.drawText(TOOL_LABEL[tool], {
-      x: boxX + LABEL_X_OFFSET,
-      y: cy,
+      x: cellX + 14,
+      y: cy - 3,
       size: 7,
       font,
       color: rgb(0, 0, 0),
     });
-    cy -= ROW_HEIGHT;
   }
+  // (suppress unused-param lint for `layout` — strip is page-absolute, doesn't
+  // consult the per-frame layout. Kept in signature for future use.)
+  void layout;
 }
 
 /**
