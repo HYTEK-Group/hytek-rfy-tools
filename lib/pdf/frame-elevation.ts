@@ -182,24 +182,28 @@ function pageDims(size: PdfPageSize): [number, number] {
 }
 
 // ---------- Tool color palette ----------
-// Mirror of app/viewer/lib/tool-colors.ts but as RGB tuples for pdf-lib.
-// Kept in-sync manually — both files document the same palette decision.
+// Detailer renders ALL tooling marks in pure black, with shape variation
+// telling the operator which op is which. The previous bright-RGB palette
+// (mirror of app/viewer/lib/tool-colors.ts) was Agent 2's invention for
+// the on-screen viewer — Detailer's printed PDFs are monochrome.
+// Kept as a typed Record so drawToolOp's lookup is still O(1) and the
+// shape-by-type switch in drawMarker is unchanged.
 
 const TOOL_COLOR: Record<ToolType, RGB> = {
-  LipNotch: rgb(0.94, 0.27, 0.27),       // #ef4444
-  LeftFlange: rgb(0.98, 0.45, 0.09),      // #f97316
-  RightFlange: rgb(0.93, 0.28, 0.6),      // #ec4899
-  LeftPartialFlange: rgb(0.98, 0.44, 0.52), // #fb7185
-  RightPartialFlange: rgb(0.99, 0.64, 0.69), // #fda4af
-  InnerDimple: rgb(0.98, 0.8, 0.08),       // #facc15 (HYTEK yellow-adjacent)
-  Swage: rgb(0.96, 0.62, 0.04),            // #f59e0b
-  InnerNotch: rgb(0.66, 0.33, 0.97),       // #a855f7
-  Web: rgb(0.02, 0.71, 0.83),              // #06b6d4
-  Bolt: rgb(0.23, 0.51, 0.96),             // #3b82f6
-  ScrewHoles: rgb(0.13, 0.77, 0.37),       // #22c55e
-  InnerService: rgb(0.08, 0.72, 0.65),     // #14b8a6
-  Chamfer: rgb(0.52, 0.8, 0.09),           // #84cc16
-  TrussChamfer: rgb(0.52, 0.8, 0.09),      // same — same physical op
+  LipNotch: rgb(0, 0, 0),
+  LeftFlange: rgb(0, 0, 0),
+  RightFlange: rgb(0, 0, 0),
+  LeftPartialFlange: rgb(0, 0, 0),
+  RightPartialFlange: rgb(0, 0, 0),
+  InnerDimple: rgb(0, 0, 0),
+  Swage: rgb(0, 0, 0),
+  InnerNotch: rgb(0, 0, 0),
+  Web: rgb(0, 0, 0),
+  Bolt: rgb(0, 0, 0),
+  ScrewHoles: rgb(0, 0, 0),
+  InnerService: rgb(0, 0, 0),
+  Chamfer: rgb(0, 0, 0),
+  TrussChamfer: rgb(0, 0, 0),
 };
 
 // ---------- Geometry helpers (mirror app/viewer/lib/geometry.ts) ----------
@@ -531,6 +535,15 @@ function drawFramePage(
     drawStick(page, stick, layout, font, opts, wallStyle, webOverrides);
   }
 
+  // C-section junction markers — Detailer draws a small U-bracket UNDER
+  // the bottom plate at each (stud × bottom-plate) junction, opening
+  // upward toward the stud. NOT one per stud individually — the bracket
+  // sits on the plate at the junction X, indicating the C's lip
+  // direction. Width = stud width, height ~7pt.
+  if (wallStyle) {
+    drawCJunctionMarkers(page, frame, bb, layout, webOverrides);
+  }
+
   // Diagonal lines from source XML (<line layer="0">) — strap braces +
   // anchor marks. Drawn after sticks so they overlay (Detailer's
   // convention; the X-pattern is meant to read across the wall surface,
@@ -702,105 +715,99 @@ function drawStick(
   const corners = stick.outlineCorners!;
   const { s, ox, oy } = layout;
 
-  // Stick body — polygon from outline corners.
-  //
-  // BUG (2026-05-09): pdf-lib's `drawSvgPath` applies `scale(1, -1)` to
-  // flip the SVG Y axis (SVG = Y-down, PDF = Y-up). Without an explicit
-  // `y:` translate option that defaults to `0`, polygon coordinates land
-  // at NEGATIVE Y on the PDF page — i.e. off-page, completely invisible.
-  // Verified against HG260002 5 MOSSIP COURT WELLINGTON POINT-GF-LBW
-  // production XML (1431 sticks rendered to nowhere).
-  //
-  // Fix: emit raw PDF path operators directly. PDF native moveto/lineto
-  // operate in PDF coordinate space (Y-up, origin bottom-left), no flip.
+  // Stick body — hairline-only outline polygon. Detailer renders EVERY
+  // stick (plates, studs, nogs, headers, braces) as a width-0 black
+  // rectangle outline — NO fills anywhere on the elevation. Verified
+  // 2026-05-09 against HG260002-NLBW-DETAILER-REF.pdf: zero filled
+  // shapes on any of the 67 frame pages.
   const polyPts = corners.map(c => ({
     x: ox + c.x * s,
     y: oy + c.y * s,
   }));
+  drawFilledPolygon(page, polyPts, null, rgb(0, 0, 0), 0.3);
 
-  // Render style:
-  //   - Wall plan + VERTICAL/DIAGONAL stick (studs, jack/trim/end studs,
-  //     braces) → outline only, no fill, plus a C-section orientation
-  //     marker below the start end and a thicker stroke on the web edge.
-  //     The 41mm flange-edge thickness reads as a hairline at typical
-  //     page scale, matching Detailer's wall-elevation convention
-  //     (verified side-by-side against HG260002 GF-NLBW-89.075 frame
-  //     N37 reference PDF, 2026-05-09).
-  //   - Wall plan + HORIZONTAL stick (top/bottom plates, headers, sills,
-  //     nogs) → keep the filled rectangle look. Detailer also draws
-  //     these as visible filled members because the operator sees their
-  //     full flange edge across the wall face. They don't get a C-marker
-  //     (orientation is implied by their installation context).
-  //   - Truss/floor plans → keep filled rectangle. The 89mm web IS in the
-  //     elevation plane there, so the wider visual presence is correct.
-  const studOutlineOnly = wallStyle && isStudStyleStick(m);
-  drawFilledPolygon(
-    page,
-    polyPts,
-    studOutlineOnly ? null : rgb(0.85, 0.86, 0.88),  // light steel grey fill (omit for wall studs)
-    rgb(0.27, 0.27, 0.3),                             // darker grey outline
-    0.5
-  );
-
-  // Wall-stud orientation indicators — match Detailer's elevation convention:
-  //   1. Web edge (closed back of the C-section) drawn THICKER than the lip
-  //      edge. Operator can see at a glance which way the C is facing on
-  //      the assembled wall.
-  //   2. Small C-section symbol below the start end, opening toward the
-  //      LIPS (= away from the web).
+  // Asymmetric stick outline — Detailer's signature convention. Each
+  // C-section stick is drawn as 4 outer edges PLUS one interior
+  // longitudinal line offset ~0.4pt INSIDE one long edge, so visually
+  // ONE long edge is a "doubled line" and the OTHER is a single line.
+  // The doubled-line edge is the LIP side (open side of the C); the
+  // single-line edge is the WEB side (closed back of the C).
   //
-  // The two markers always agree: web side and lip side are opposite faces
-  // of the stick, so their directions are slaved to a single sign.
+  // Sign convention (rectangle CCW corner ordering from
+  // buildStickElevationGraphics):
+  //   edge 0→1 = +perp side (one long edge)
+  //   edge 2→3 = -perp side (the other long edge)
+  // perp = (-dirY, dirX) (90° CCW of stick direction).
   //
-  // Sign convention (verified against the rectangle CCW corner ordering
-  // produced by buildStickElevationGraphics in the codec):
-  //   corners[0] = start + perp × half     ←  +perp side
-  //   corners[1] = end   + perp × half     ←  +perp side
-  //   corners[2] = end   - perp × half     ←  -perp side
-  //   corners[3] = start - perp × half     ←  -perp side
-  // where perp = (-dirY, dirX) — i.e. 90° CCW of stick direction.
-  // For a vertical stud going up: +perp = LEFT (in elevation), -perp = RIGHT.
+  // Default: stick.flipped — false → lips on +perp, true → lips on -perp.
+  // Override: webOverrides Map keyed by stick.name; +1 = lips on +perp,
+  // -1 = lips on -perp. See computeWebOverrides for the structural
+  // detection rules (frame-end studs, opening jamb studs).
   //
-  // Default (interior studs): use FrameCAD's `flipped` attribute
-  //   flipped=false → lips on +perp (LEFT)  → web on -perp (RIGHT)
-  //   flipped=true  → lips on -perp (RIGHT) → web on +perp (LEFT)
-  //
-  // OVERRIDE (frame-end studs and opening jamb studs): force lipSign
-  // by structural position so the web faces inward regardless of what
-  // FrameCAD wrote in `<flipped>`. See computeWebOverrides.
-  if (studOutlineOnly) {
+  // Only applied to stud-style sticks in wall frames (verticals + diagonals).
+  // Plates/headers/nogs render as plain rectangle outlines — Detailer
+  // doesn't double-line their long edges either.
+  const studStyle = wallStyle && isStudStyleStick(m);
+  if (studStyle) {
     const fallback = stick.flipped ? -1 : +1;
     const lipSign: 1 | -1 = webOverrides.get(stick.name) ?? (fallback as 1 | -1);
-    // Web edge = the long edge OPPOSITE the lip side.
-    // lipSign=+1 → lips on +perp (edge 0-1) → web on -perp (edge 2-3)
-    // lipSign=-1 → lips on -perp (edge 2-3) → web on +perp (edge 0-1)
-    const webEdge = lipSign === +1
-      ? { a: polyPts[2]!, b: polyPts[3]! }
-      : { a: polyPts[0]!, b: polyPts[1]! };
+    // lipSign=+1 → lips on +perp (edge 0-1) → double THAT edge.
+    // lipSign=-1 → lips on -perp (edge 2-3) → double THAT edge.
+    const lipEdgeIdx: [number, number] = lipSign === +1 ? [0, 1] : [2, 3];
+    const dirX = Math.cos(m.angle);
+    const dirY = Math.sin(m.angle);
+    // Perp pointing toward the WEB (so we offset the interior line FROM
+    // the lip edge AWAY from the web — which is INWARD from the lip edge).
+    // Wait — the doubled line sits INSIDE the lip edge, i.e. BETWEEN the
+    // lip edge and the stick's centerline. So perp_inward points from
+    // the lip edge toward the centerline = from +perp toward -perp when
+    // lipSign=+1, i.e. perp_inward = -lipSign × perp.
+    const perpX = -dirY, perpY = dirX;            // +perp (90° CCW)
+    const inwardX = -lipSign * perpX;             // pointing from lip edge inward
+    const inwardY = -lipSign * perpY;
+    const OFFSET_PT = 0.8;                        // ~0.4pt either side of edge appears as paired line
+    const a0 = polyPts[lipEdgeIdx[0]]!;
+    const a1 = polyPts[lipEdgeIdx[1]]!;
     page.drawLine({
-      start: webEdge.a,
-      end: webEdge.b,
-      thickness: 2.4,                       // ~5× the regular outline (0.5pt) — visible at any frame scale
-      color: rgb(0, 0, 0),                  // pure black, more contrast vs the grey outline
+      start: { x: a0.x + inwardX * OFFSET_PT, y: a0.y + inwardY * OFFSET_PT },
+      end:   { x: a1.x + inwardX * OFFSET_PT, y: a1.y + inwardY * OFFSET_PT },
+      thickness: 0.3,
+      color: rgb(0, 0, 0),
     });
-    drawCSectionMarker(page, m, lipSign, layout);
   }
 
-  // Stick label at midpoint.
-  const labelMid = posAlongStick(m, m.length / 2);
-  const labelPt = { x: ox + labelMid.x * s, y: oy + labelMid.y * s };
-  const labelSize = 5;
-  // Rotate the label along the stick angle, but keep upright if vertical.
-  const angleDeg = (m.angle * 180) / Math.PI;
-  // Skip rotation: pdf-lib supports rotate via degrees(); but the label is
-  // small enough that horizontal-only is readable. Future TODO: rotate.
-  page.drawText(stick.name, {
-    x: labelPt.x - (stick.name.length * labelSize * 0.3),
-    y: labelPt.y - labelSize / 2,
-    size: labelSize,
-    font,
-    color: rgb(0.1, 0.1, 0.1),
-  });
+  // Stick label — rotated 90° CCW for vertical sticks (place inside the
+  // stud near the top end, ~7pt). For horizontal sticks, keep horizontal
+  // and place near the left end. Detailer's labels read top-to-bottom on
+  // verticals and left-to-right on horizontals.
+  const labelSize = 7;
+  const isVertical = Math.abs(Math.sin(m.angle)) > 0.5;
+  if (isVertical) {
+    // Place near the TOP end of the stud — m.start.y < m.end.y per the
+    // ascending-y normalisation in stickMidline, so "top" = m.end.
+    // Offset slightly INTO the stud from the top so the label sits on
+    // the steel rather than above it.
+    const labelPos = posAlongStick(m, Math.max(0, m.length - 60));
+    page.drawText(stick.name, {
+      x: ox + labelPos.x * s - labelSize * 0.4,
+      y: oy + labelPos.y * s,
+      size: labelSize,
+      font,
+      color: rgb(0, 0, 0),
+      rotate: degrees(90),
+    });
+  } else {
+    // Horizontal stick — place near the LEFT end (= m.start since
+    // stickMidline orders by ascending y then x).
+    const labelPos = posAlongStick(m, Math.min(m.length, 60));
+    page.drawText(stick.name, {
+      x: ox + labelPos.x * s,
+      y: oy + labelPos.y * s + 2,
+      size: labelSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+  }
 
   // Tooling marks.
   if (opts.showToolingMarks) {
@@ -850,15 +857,18 @@ function drawToolOp(
 }
 
 /**
- * Draw a tool-type-specific symbol at point pt.
+ * Draw a tool-type-specific symbol at point pt. ALL marks are pure black —
+ * shape variation is the differentiator (matches Detailer's monochrome
+ * elevation conventions, audit 2026-05-09).
  *
- * Symbol shapes (loosely match Detailer's conventions):
- *   InnerDimple, Bolt, Web, ScrewHoles → small filled circle
- *   Swage                              → small filled rectangle (rib)
- *   LipNotch + flange variants         → small triangle (V-cut)
- *   InnerNotch                         → square outline (web cutout)
- *   InnerService                       → oval (slot)
- *   Chamfer / TrussChamfer             → small ✕
+ * Symbol shapes:
+ *   InnerDimple, Bolt, Web → small filled circle
+ *   ScrewHoles             → concentric-circle (anchor symbol)
+ *   Swage                  → striped/hatched rectangle (rib pattern)
+ *   LipNotch + flange      → V-cut triangle (open at one edge)
+ *   InnerNotch             → square outline (web cutout)
+ *   InnerService           → ellipse (service slot)
+ *   Chamfer / TrussChamfer → ✕ cross
  */
 function drawMarker(
   page: PDFPage,
@@ -871,19 +881,38 @@ function drawMarker(
     case "InnerDimple":
     case "Bolt":
     case "Web":
-    case "ScrewHoles":
       page.drawCircle({ x: pt.x, y: pt.y, size: r, color, borderWidth: 0 });
       break;
-    case "Swage":
-      page.drawRectangle({
-        x: pt.x - r * 1.4,
-        y: pt.y - r * 0.5,
-        width: r * 2.8,
-        height: r,
-        color,
-        borderWidth: 0,
-      });
+    case "ScrewHoles": {
+      // Concentric circles — outer hairline ring + small filled centre.
+      page.drawCircle({ x: pt.x, y: pt.y, size: r * 1.4, color: undefined, borderColor: color, borderWidth: 0.4 });
+      page.drawCircle({ x: pt.x, y: pt.y, size: r * 0.4, color, borderWidth: 0 });
       break;
+    }
+    case "Swage": {
+      // Hatched rectangle — outline + 3 internal hairlines for the rib pattern.
+      const w = r * 2.8, h = r;
+      page.drawRectangle({
+        x: pt.x - w / 2,
+        y: pt.y - h / 2,
+        width: w,
+        height: h,
+        color: undefined,
+        borderColor: color,
+        borderWidth: 0.4,
+      });
+      const stripeCount = 3;
+      for (let i = 1; i <= stripeCount; i++) {
+        const sx = pt.x - w / 2 + (w * i) / (stripeCount + 1);
+        page.drawLine({
+          start: { x: sx, y: pt.y - h / 2 },
+          end: { x: sx, y: pt.y + h / 2 },
+          thickness: 0.3,
+          color,
+        });
+      }
+      break;
+    }
     case "LipNotch":
     case "LeftFlange":
     case "RightFlange":
@@ -1279,81 +1308,114 @@ function drawFooter(
 // ---------- Utilities ----------
 
 /**
- * Draw a small C-section orientation marker outside one end of a stud's
- * midline. Matches Detailer's elevation convention: a bracket-shape
- * symbol that tells the operator which way the open side of the
- * C-channel faces (lip direction).
+ * Draw C-section U-bracket markers under the bottom plate at every
+ * (stud × bottom-plate) junction. Detailer's convention (verified vs
+ * HG260002-NLBW-DETAILER-REF.pdf, audit 2026-05-09): NOT one bracket per
+ * stud individually — the bracket sits ON the bottom plate at each
+ * junction X position, opening UPWARD toward the stud above it. The
+ * open side points toward the lips (the C-section convention).
  *
- * Geometry (3-segment polyline forming a bracket):
- *   - Web on one side (vertical line, closed back of the C)
- *   - Two flanges extending toward the lips (top + bottom horizontal lines)
- *   - Open side (no line) = where the lips face
+ * Geometry: a U-bracket = 3 line segments (left flange + base + right
+ * flange) drawn as a closed-bottom bracket whose width matches the stud
+ * width and height ~7pt. Width is taken from the stud's outline (short
+ * edge length); height is fixed in pt for visual consistency.
  *
- * `lipSign` parameter: +1 if lips face +perp (90° CCW of stick direction),
- * -1 if lips face -perp. Caller derives this from `stick.flipped` and
- * passes the SAME sign used to pick the thicker web edge on the stick
- * outline — guaranteeing the two indicators always agree.
- *
- * Placed at the stick's start end, offset OUTSIDE the stick by OFFSET_PT
- * so it sits clear of the outline and doesn't overlap tooling marks. Size
- * is fixed in PDF points so the marker reads at any page scale.
+ * Lip sign per stud is fed from webOverrides + stick.flipped (same
+ * signal as the asymmetric outline's doubled-line side, so the two
+ * indicators always agree).
  */
-function drawCSectionMarker(
+function drawCJunctionMarkers(
   page: PDFPage,
-  m: Midline,
-  lipSign: 1 | -1,
+  frame: RfyFrame,
+  bb: BBox,
   layout: PageLayout,
+  webOverrides: Map<string, 1 | -1>,
 ): void {
   const { s, ox, oy } = layout;
 
-  // Marker size in PDF points — fixed visual size regardless of frame scale.
-  // Sized so the marker is legible on big frames (3m+ walls) without
-  // dominating small ones. ~doubled from the original 7pt — Scott's
-  // feedback 2026-05-09: at A3 auto-fit on a 3290mm-wide frame the
-  // earlier 7pt marker was near-invisible.
-  const SIZE = 14;            // overall bracket height (web length, in stick-local "along" axis)
-  const FLANGE = SIZE * 0.6;  // flange-arm length (lips direction)
-  const OFFSET_PT = 18;       // gap between stick start and marker centre
+  // Find the bottom plate(s) — horizontal sticks whose Y is at or near
+  // the frame's bbox.minY (= bottom of the frame). Detailer typically has
+  // one B1 + maybe a raised B2 (above-door sill).
+  type SM = { stick: RfyStick; m: Midline };
+  const sticks: SM[] = [];
+  for (const stick of frame.sticks) {
+    const m = stickMidline(stick);
+    if (!m) continue;
+    sticks.push({ stick, m });
+  }
+  const horizontals = sticks.filter(sm => Math.abs(Math.sin(sm.m.angle)) <= 0.5);
+  const verticals   = sticks.filter(sm => Math.abs(Math.sin(sm.m.angle)) >  0.5);
+  if (verticals.length === 0 || horizontals.length === 0) return;
 
-  // Direction along the stick (start → end) and its perpendicular.
-  const dirX = Math.cos(m.angle);
-  const dirY = Math.sin(m.angle);
+  // Find the lowest horizontal stick(s) — Y within 50mm of bbox.minY.
+  const PLATE_TOL_MM = 50;
+  const bottomPlates = horizontals.filter(sm => {
+    const cy = (sm.m.start.y + sm.m.end.y) / 2;
+    return cy <= bb.minY + PLATE_TOL_MM;
+  });
+  if (bottomPlates.length === 0) return;
 
-  // Place marker centre OUTSIDE the start end (one OFFSET_PT step opposite
-  // the stick's forward direction). For a vertical stud this puts the
-  // marker BELOW the bottom of the stud.
-  const cx = ox + m.start.x * s - dirX * OFFSET_PT;
-  const cy = oy + m.start.y * s - dirY * OFFSET_PT;
+  // Bracket size in pt — fixed visual size, doesn't scale with frame.
+  const BRACKET_HEIGHT_PT = 7;
 
-  // Bracket points in stick-LOCAL coords (lx = along stick, ly = across):
-  //   top-flange-tip = (+halfWeb, lipSign*FLANGE)
-  //   web-top        = (+halfWeb, 0)
-  //   web-bot        = (-halfWeb, 0)
-  //   bot-flange-tip = (-halfWeb, lipSign*FLANGE)
-  // Polyline goes top-flange-tip → web-top → web-bot → bot-flange-tip,
-  // which is the 3 strokes (top flange, web, bottom flange) of the bracket.
-  // The "open" side faces +lipSign × perp = the lip direction. ✓
-  const halfWeb = SIZE / 2;
-  const pts = [
-    { lx: +halfWeb, ly: lipSign * FLANGE },
-    { lx: +halfWeb, ly: 0 },
-    { lx: -halfWeb, ly: 0 },
-    { lx: -halfWeb, ly: lipSign * FLANGE },
-  ].map(({ lx, ly }) => ({
-    // Rotate (lx, ly) into PDF coords using stick angle, then translate
-    // to (cx, cy). local-x maps along (dirX, dirY); local-y maps along
-    // (-dirY, dirX) (90° CCW perpendicular = +perp).
-    x: cx + lx * dirX + ly * (-dirY),
-    y: cy + lx * dirY + ly * dirX,
-  }));
+  // For each vertical stud, find which bottom plate it intersects (X
+  // coincides with the plate's span) and emit a U-bracket on that plate.
+  const JUNCTION_TOL_MM = 30;
+  for (const v of verticals) {
+    const studCenterX = (v.m.start.x + v.m.end.x) / 2;
+    // Stud width (short side of the rectangle) — use thickness from midline.
+    const studWidthMm = v.m.thickness;
 
-  for (let i = 0; i < pts.length - 1; i++) {
-    page.drawLine({
-      start: pts[i]!,
-      end: pts[i + 1]!,
-      thickness: 1.4,                       // ~doubled from 0.7pt — Scott reported markers near-invisible at 7pt × 0.7pt stroke on 3m+ frames
-      color: rgb(0, 0, 0),                  // pure black for contrast vs the grey stick outlines
-    });
+    // Find a bottom plate whose X-span contains studCenterX.
+    let plate: SM | null = null;
+    for (const bp of bottomPlates) {
+      const xMin = Math.min(bp.m.start.x, bp.m.end.x) - JUNCTION_TOL_MM;
+      const xMax = Math.max(bp.m.start.x, bp.m.end.x) + JUNCTION_TOL_MM;
+      if (studCenterX >= xMin && studCenterX <= xMax) { plate = bp; break; }
+    }
+    if (!plate) continue;
+
+    // Plate top-Y = plate.center.y + halfPlateThickness. We want the
+    // bracket sitting JUST ABOVE the plate's top face (= just under the
+    // stud's bottom face). Plate's outline corners give us its bbox in
+    // mm; pick max Y of those.
+    const plateCorners = plate.stick.outlineCorners;
+    if (!plateCorners) continue;
+    const plateMaxY = Math.max(...plateCorners.map(c => c.y));
+
+    // Lip sign for this stud — same convention as drawStick.
+    const lipSign: 1 | -1 = webOverrides.get(v.stick.name) ?? ((v.stick.flipped ? -1 : +1) as 1 | -1);
+
+    // Bracket geometry in PDF pt:
+    //   - Sit ON TOP of plate (y = plateMaxY in mm, converted to pt).
+    //   - Width matches the stud's elevation width.
+    //   - Height = BRACKET_HEIGHT_PT.
+    //   - Open side faces UPWARD (toward the stud) — lip sign rotates
+    //     left vs right "leg lengths" so the open lip is on the lipSign side.
+    const cxPt = ox + studCenterX * s;
+    const cyPt = oy + plateMaxY * s;
+    const halfWidthPt = (studWidthMm * s) / 2;
+
+    // U-bracket = 3 segments: left flange UP, base, right flange UP.
+    // The "leg" on the lipSign side is FULL height; the leg on the web
+    // side is also full height (a closed U), but we knock 1pt off the
+    // web-side top so the asymmetry indicates the lip direction. This
+    // mirrors Detailer's marker which shows the open notch on the lip
+    // side as a clear gap.
+    const baseY = cyPt;
+    const lipLegTop = baseY + BRACKET_HEIGHT_PT;
+    const webLegTop = baseY + BRACKET_HEIGHT_PT * 0.8; // shorter on web side
+    const leftX = cxPt - halfWidthPt;
+    const rightX = cxPt + halfWidthPt;
+    // lipSign=+1 means lips on +perp (LEFT for vertical going up). So the
+    // LEFT leg = lip side = full height; RIGHT leg = web side = shorter.
+    // lipSign=-1 → swap.
+    const leftTop = lipSign === +1 ? lipLegTop : webLegTop;
+    const rightTop = lipSign === +1 ? webLegTop : lipLegTop;
+
+    page.drawLine({ start: { x: leftX,  y: baseY }, end: { x: leftX,  y: leftTop  }, thickness: 0.4, color: rgb(0, 0, 0) });
+    page.drawLine({ start: { x: leftX,  y: baseY }, end: { x: rightX, y: baseY    }, thickness: 0.4, color: rgb(0, 0, 0) });
+    page.drawLine({ start: { x: rightX, y: baseY }, end: { x: rightX, y: rightTop }, thickness: 0.4, color: rgb(0, 0, 0) });
   }
 }
 
