@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<framecad_import name="HG250096 SE14 LOT 85 SHARMAN STREET REDBANK PLAINS">
+ <jobnum> "HG250096" </jobnum>
+ <client> "SE14" </client>
+
+ <drawing_info units="Metric" envelope_ref="Centre" stick_ref="Centre">
+  <datedrawn> "07-10-2025" </datedrawn>
+ </drawing_info>
+
+<plan name="U2-GF-RP-70.075">
+<elevation> 0.0 </elevation>
+
+<frame name="R201" type="RoofPanel">
+<elevation>0.0</elevation>
+
+ <envelope>
+   <vertex>64557.979,18649.611,2985.867 </vertex>
+   <vertex>64556.979,18649.611,2985.867 </vertex>
+   <vertex>64557.979,17649.611,3073.355 </vertex>
+   <vertex>65681.979,17649.611,3073.355 </vertex>
+   <vertex>65681.979,18649.611,2985.867 </vertex>
+ </envelope>
+ <stick name="T1" type="Plate" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="TopPlate">
+   <start>65661.479,18694.440,2981.945 </start>
+   <end>65661.479,17655.712,3072.822 </end>
+   <profile web="70" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C" />
+   <flipped> false </flipped>
+ </stick>
+
+ <stick name="B1" type="Plate" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="BottomPlate">
+   <start>65119.479,18694.440,2981.945 </start>
+   <end>65119.479,17655.712,3072.822 </end>
+   <profile web="70" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C" />
+   <flipped> true </flipped>
+ </stick>
+
+ <stick name="B2" type="Plate" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="BottomPlate">
+   <start>64578.479,18694.440,2981.945 </start>
+   <end>64578.479,17655.712,3072.822 </end>
+   <profile web="70" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C" />
+   <flipped> true </flipped>
+ </stick>
+
+ <stick name="S1" type="Stud" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="Stud">
+   <start>64559.979,18604.284,2989.832 </start>
+   <end>65679.979,18604.284,2989.832 </end>
+   <profile web="70" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C" />
+   <flipped> false </flipped>
+ </stick>
+
+ <stick name="S2" type="Stud" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="Stud">
+   <start>64559.979,18152.661,3029.344 </start>
+   <end>65679.979,18152.661,3029.344 </end>
+   <profile web="70" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C" />
+   <flipped> false </flipped>
+ </stick>
+
+ <stick name="S3" type="Stud" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="Stud">
+   <start>64559.979,17676.134,3071.035 </start>
+   <end>65679.979,17676.134,3071.035 </end>
+   <profile web="70" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C" />
+   <flipped> true </flipped>
+ </stick>
+
+ <fastener name="001792" count="2">
+   <point>65660.979,18604.284,2989.832 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>65660.979,18152.661,3029.344 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>65660.979,17676.134,3071.035 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>65119.979,18604.284,2989.832 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>65119.979,18152.661,3029.344 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>65119.979,17676.134,3071.035 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>64578.979,18604.284,2989.832 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>64578.979,18152.661,3029.344 </point>
+ </fastener>
+ <fastener name="001792" count="2">
+   <point>64578.979,17676.134,3071.035 </point>
+ </fastener>
+</frame>
+</plan>
+</framecad_import>
