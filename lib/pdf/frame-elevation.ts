@@ -189,6 +189,109 @@ function posAlongStick(m: Midline, pos: number): Pt {
   };
 }
 
+/**
+ * Compute web-direction overrides for vertical studs in a wall frame.
+ *
+ * The structural rule (Scott, 2026-05-09): for end studs at frame
+ * extremes AND for jamb studs at door/window openings, the WEB always
+ * faces inward — toward the frame interior or the opening interior —
+ * regardless of what FrameCAD writes in `<flipped>`. Lips face outward
+ * (toward the wall edge or away from the opening).
+ *
+ * Without this override, the C-marker and thicker-web-edge indicators
+ * point the wrong way on these specific studs (FrameCAD's flipped
+ * attribute alone is not enough to recover the structural orientation).
+ *
+ * Returned map: stick.name → lipSign (+1 or -1). Sticks not in the map
+ * fall back to FrameCAD's `flipped` attribute. Convention:
+ *   lipSign = +1 → lips on +perp side (LEFT for vertical stud)  → web on RIGHT
+ *   lipSign = -1 → lips on -perp side (RIGHT for vertical stud) → web on LEFT
+ *
+ * Detection rules:
+ *   1. FRAME ENDS — leftmost & rightmost vertical studs in the frame.
+ *      Leftmost  → lips on LEFT (lipSign=+1) → web faces RIGHT (interior).
+ *      Rightmost → lips on RIGHT (lipSign=-1) → web faces LEFT (interior).
+ *   2. OPENING JAMBS — vertical studs whose cross-stick X coincides
+ *      (within tolerance) with the END of any partial-width horizontal
+ *      member (sill, header, nog at opening). The horizontal member's
+ *      MIN-X side is the LEFT jamb (lips on LEFT, web faces opening to
+ *      the RIGHT); MAX-X side is the RIGHT jamb (lips on RIGHT, web
+ *      faces opening to the LEFT).
+ */
+function computeWebOverrides(
+  frame: RfyFrame,
+  bbox: BBox,
+): Map<string, 1 | -1> {
+  const overrides = new Map<string, 1 | -1>();
+
+  // Index every stick once with its midline; bail early if a stick has
+  // no outline corners (can't classify or position).
+  type SM = { stick: RfyStick; m: Midline; crossX: number };
+  const sticks: SM[] = [];
+  for (const stick of frame.sticks) {
+    const m = stickMidline(stick);
+    if (!m) continue;
+    sticks.push({ stick, m, crossX: (m.start.x + m.end.x) / 2 });
+  }
+
+  // Same threshold as isStudStyleStick — must agree with the rendering
+  // path, otherwise overrides target the wrong sticks.
+  const isVertical = (m: Midline) => Math.abs(Math.sin(m.angle)) > 0.5;
+  const verticals = sticks.filter(s => isVertical(s.m));
+  const horizontals = sticks.filter(s => !isVertical(s.m));
+  if (verticals.length === 0) return overrides;
+
+  // Sort vertical studs by cross-stick X.
+  const sortedV = [...verticals].sort((a, b) => a.crossX - b.crossX);
+
+  // RULE 1 — frame-end studs.
+  // Pick the leftmost stud(s) and rightmost stud(s) that sit within
+  // EXTREME_TOL_MM of the frame's bbox extreme — handles double-stacked
+  // corner studs (two studs at the same end position both qualify).
+  const EXTREME_TOL_MM = 25;
+  const leftEdgeX = sortedV[0]!.crossX;
+  const rightEdgeX = sortedV[sortedV.length - 1]!.crossX;
+  for (const v of sortedV) {
+    if (v.crossX <= leftEdgeX + EXTREME_TOL_MM) {
+      overrides.set(v.stick.name, +1); // left-end: lips LEFT, web RIGHT (interior)
+    }
+    if (v.crossX >= rightEdgeX - EXTREME_TOL_MM) {
+      overrides.set(v.stick.name, -1); // right-end: lips RIGHT, web LEFT (interior)
+    }
+  }
+
+  // RULE 2 — opening jambs.
+  // A horizontal stick whose elevation length is significantly less than
+  // the frame's width is an opening member (sill, header, infill nog).
+  // Vertical studs whose X coincides with that horizontal's start-X or
+  // end-X are jambs.
+  const frameWidth = bbox.maxX - bbox.minX;
+  const PARTIAL_THRESHOLD = 0.85; // member spanning <85% of width = opening
+  const JAMB_TOL_MM = 30;          // jamb stud within 30mm of horizontal endpoint
+
+  for (const h of horizontals) {
+    const hLen = Math.abs(h.m.end.x - h.m.start.x);
+    if (hLen / frameWidth >= PARTIAL_THRESHOLD) continue;
+
+    const hMin = Math.min(h.m.start.x, h.m.end.x);
+    const hMax = Math.max(h.m.start.x, h.m.end.x);
+
+    for (const v of verticals) {
+      if (overrides.has(v.stick.name)) continue; // frame-end takes priority
+      if (Math.abs(v.crossX - hMin) < JAMB_TOL_MM) {
+        // Stud sits at LEFT end of opening — its web should face RIGHT
+        // (into opening). lips on LEFT.
+        overrides.set(v.stick.name, +1);
+      } else if (Math.abs(v.crossX - hMax) < JAMB_TOL_MM) {
+        // Stud sits at RIGHT end of opening — web faces LEFT (into opening).
+        overrides.set(v.stick.name, -1);
+      }
+    }
+  }
+
+  return overrides;
+}
+
 function frameBBox(frame: RfyFrame): BBox | null {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   let any = false;
@@ -249,28 +352,33 @@ function isWallPlan(planName: string): boolean {
 }
 
 /**
- * True iff the stick is a stud-family member in a wall (everything that
- * isn't a top/bottom plate). Render as outline-only with a C-section
- * orientation marker — matches Detailer's wall elevation convention
- * (verified side-by-side 2026-05-09).
+ * True iff the stick should render in stud-style (outlined hairline +
+ * C-section orientation marker) inside a wall elevation. False = plate-style
+ * (filled rectangle, no marker).
  *
- * Detection: prefer `stick.type` (always populated by the codec — "plate"
- * for top/bottom plates, "stud" for everything else: studs, nogs, braces,
- * jackstuds, etc.). Falls back to `usage` for safety, but in practice
- * `usage` is undefined after the synthesize → decode round-trip the HD1
- * pipeline does (verified empirically against the LBW corpus).
+ * Detection is **angle-based**, not usage-based. Reason: the codec's
+ * `inferStickType` only classifies top/bottom/head plates as "plate" and
+ * lumps EVERYTHING else (studs, nogs, sills, braces, jackstuds, trimstuds)
+ * under "stud". That misses horizontal members at openings:
  *
- * Plates keep the filled rectangle look — Detailer also draws plates as
- * visible filled structural members and they don't get an orientation
- * marker (their orientation is dictated by the wall lining).
+ *   - Sills (bottom of window openings)   — horizontal C-channel
+ *   - Nogs (stiffeners between studs)     — horizontal C-channel
+ *   - Trim/jack studs at door/window jambs — vertical C-channel
+ *   - Braces (Kb1, Kb2)                    — diagonal C-channel
+ *
+ * Detailer's elevation rule is: anything running HORIZONTALLY in the wall
+ * face (top/bottom plates, headers, sills, nogs) gets the filled-rectangle
+ * "plate" treatment because the operator sees its full flange edge across
+ * the wall. Anything VERTICAL or DIAGONAL (studs, jacks, trims, braces)
+ * gets the hairline + C-marker treatment because the operator only sees
+ * its 41mm flange edge end-on.
+ *
+ * Threshold: 45° (|sin(angle)| > 0.5). Anything more vertical than
+ * horizontal → stud-style. Braces at typical 30-60° diagonal → stud-style
+ * (matches Detailer — braces render as hairlines, not filled rectangles).
  */
-function isWallStudStick(stick: RfyStick): boolean {
-  if (stick.type === "stud") return true;
-  if (stick.type === "plate") return false;
-  // Fallback if `type` is absent (older RFY shapes): use usage.
-  const u = (stick.usage ?? "").toLowerCase();
-  return u === "stud" || u === "trimstud" || u === "endstud" || u === "jackstud" ||
-         u === "nog" || u === "noggin" || u === "brace";
+function isStudStyleStick(midline: Midline): boolean {
+  return Math.abs(Math.sin(midline.angle)) > 0.5;
 }
 
 function drawFramePage(
@@ -335,14 +443,22 @@ function drawFramePage(
   });
 
   // Sticks.
-  // wallStyle = render studs as outline-only thin rectangles (matches
-  // Detailer's elevation convention: web into the page, only the flange
-  // edge visible — reads as a hairline at scale). Plates stay filled.
-  // Truss/floor plans keep the current filled-rectangle look since the
-  // 89mm web IS in the elevation plane there.
+  // wallStyle = render vertical/diagonal sticks as outline-only thin
+  // rectangles with C-section orientation marker (matches Detailer's wall
+  // elevation convention: web into the page, only the flange edge visible —
+  // reads as a hairline at scale). Horizontal sticks (plates, headers,
+  // sills, nogs) stay filled. Truss/floor plans keep the current
+  // filled-rectangle look for everything since the 89mm web IS in the
+  // elevation plane there.
+  //
+  // webOverrides: for wall plans, force web direction on frame-end studs
+  // and opening jamb studs — they always face inward regardless of
+  // FrameCAD's `flipped` attribute (structural rule, see
+  // computeWebOverrides docstring).
   const wallStyle = isWallPlan(planName);
+  const webOverrides = wallStyle ? computeWebOverrides(frame, bb) : new Map<string, 1 | -1>();
   for (const stick of frame.sticks) {
-    drawStick(page, stick, layout, font, opts, wallStyle);
+    drawStick(page, stick, layout, font, opts, wallStyle, webOverrides);
   }
 
   // Dimension lines (simple — overall width + height of bbox).
@@ -459,7 +575,8 @@ function drawStick(
   layout: PageLayout,
   font: any,
   opts: Required<PdfOptions>,
-  wallStyle: boolean
+  wallStyle: boolean,
+  webOverrides: Map<string, 1 | -1>
 ): void {
   const m = stickMidline(stick);
   if (!m) return;
@@ -484,15 +601,21 @@ function drawStick(
   }));
 
   // Render style:
-  //   - Wall plan + stud-family usage → outline only (no fill). The 41mm
-  //     flange-edge thickness reads as a hairline at typical page scale,
-  //     matching Detailer's wall-elevation convention (verified side-by-side
-  //     against HG260002 GF-NLBW-89.075 frame N37 reference PDF, 2026-05-09).
-  //   - Wall plan + plate usage (top/bottom/head/sill/nog) → keep filled
-  //     rectangle. Detailer also draws plates as visible filled members.
+  //   - Wall plan + VERTICAL/DIAGONAL stick (studs, jack/trim/end studs,
+  //     braces) → outline only, no fill, plus a C-section orientation
+  //     marker below the start end and a thicker stroke on the web edge.
+  //     The 41mm flange-edge thickness reads as a hairline at typical
+  //     page scale, matching Detailer's wall-elevation convention
+  //     (verified side-by-side against HG260002 GF-NLBW-89.075 frame
+  //     N37 reference PDF, 2026-05-09).
+  //   - Wall plan + HORIZONTAL stick (top/bottom plates, headers, sills,
+  //     nogs) → keep the filled rectangle look. Detailer also draws
+  //     these as visible filled members because the operator sees their
+  //     full flange edge across the wall face. They don't get a C-marker
+  //     (orientation is implied by their installation context).
   //   - Truss/floor plans → keep filled rectangle. The 89mm web IS in the
   //     elevation plane there, so the wider visual presence is correct.
-  const studOutlineOnly = wallStyle && isWallStudStick(stick);
+  const studOutlineOnly = wallStyle && isStudStyleStick(m);
   drawFilledPolygon(
     page,
     polyPts,
@@ -518,14 +641,18 @@ function drawStick(
   //   corners[2] = end   - perp × half     ←  -perp side
   //   corners[3] = start - perp × half     ←  -perp side
   // where perp = (-dirY, dirX) — i.e. 90° CCW of stick direction.
+  // For a vertical stud going up: +perp = LEFT (in elevation), -perp = RIGHT.
   //
-  // FrameCAD `flipped=false` → lips on +perp side (open faces +perp).
-  // FrameCAD `flipped=true`  → lips on -perp side (open faces -perp).
-  // Web sits on the OPPOSITE side. If this turns out to be backwards
-  // against actual operator expectation, flip the `lipSign` line below
-  // and both indicators move in lockstep.
+  // Default (interior studs): use FrameCAD's `flipped` attribute
+  //   flipped=false → lips on +perp (LEFT)  → web on -perp (RIGHT)
+  //   flipped=true  → lips on -perp (RIGHT) → web on +perp (LEFT)
+  //
+  // OVERRIDE (frame-end studs and opening jamb studs): force lipSign
+  // by structural position so the web faces inward regardless of what
+  // FrameCAD wrote in `<flipped>`. See computeWebOverrides.
   if (studOutlineOnly) {
-    const lipSign = stick.flipped ? -1 : +1;
+    const fallback = stick.flipped ? -1 : +1;
+    const lipSign: 1 | -1 = webOverrides.get(stick.name) ?? (fallback as 1 | -1);
     // Web edge = the long edge OPPOSITE the lip side.
     // lipSign=+1 → lips on +perp (edge 0-1) → web on -perp (edge 2-3)
     // lipSign=-1 → lips on -perp (edge 2-3) → web on +perp (edge 0-1)
