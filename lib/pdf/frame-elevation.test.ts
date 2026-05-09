@@ -276,6 +276,134 @@ describe("generateFramePdf with cached schedule XML", () => {
 // The minimal test doc has 2615mm-tall studs on a 595×841 A4-equivalent
 // scaling, so reasonable on-page coords land in the (0, 800) range.
 
+// ---------- Regression: studs spread along the wall length ----------
+//
+// Bug guard 2026-05-09: a regression in the codec or the renderer's
+// projection logic could collapse all wall studs to the same page-X coord
+// (so they appear stacked vertically instead of side-by-side). This test
+// builds an in-memory wall frame with 3 studs at x=0/600/1200mm and
+// asserts the rendered polygons land at THREE distinct page X centroids.
+//
+// We need to track the current transformation matrix (CTM) because
+// pdf-lib's drawRectangle / drawCircle emit `cm` translate ops before
+// moveto/lineto — the literal numbers in the stream are relative to the
+// translate, not absolute page coords.
+
+interface Mat3 { a: number; b: number; c: number; d: number; e: number; f: number; }
+const CTM_IDENTITY: Mat3 = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+function mulCTM(m1: Mat3, m2: Mat3): Mat3 {
+  return {
+    a: m1.a * m2.a + m1.c * m2.b,
+    b: m1.b * m2.a + m1.d * m2.b,
+    c: m1.a * m2.c + m1.c * m2.d,
+    d: m1.b * m2.c + m1.d * m2.d,
+    e: m1.a * m2.e + m1.c * m2.f + m1.e,
+    f: m1.b * m2.e + m1.d * m2.f + m1.f,
+  };
+}
+function applyCTM(m: Mat3, x: number, y: number): { x: number; y: number } {
+  return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f };
+}
+
+interface AbsPoly { xs: number[]; ys: number[]; }
+
+function parsePolysWithCTM(text: string): AbsPoly[] {
+  const tokens: string[] = [];
+  const re = /(-?\d+\.?\d*)|([A-Za-z]+\*?)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) tokens.push(m[0]);
+  const stack: Mat3[] = [];
+  let cur: Mat3 = CTM_IDENTITY;
+  const polys: AbsPoly[] = [];
+  let active: AbsPoly | null = null;
+  const nums: number[] = [];
+  for (const t of tokens) {
+    if (/^-?\d/.test(t)) { nums.push(Number(t)); continue; }
+    switch (t) {
+      case "q": stack.push({ ...cur }); break;
+      case "Q": cur = stack.pop() ?? CTM_IDENTITY; break;
+      case "cm": {
+        if (nums.length >= 6) {
+          const [a, b, c, d, e, f] = nums.slice(-6);
+          cur = mulCTM(cur, { a: a!, b: b!, c: c!, d: d!, e: e!, f: f! });
+        }
+        nums.length = 0; break;
+      }
+      case "m": {
+        if (nums.length >= 2) {
+          const x = nums[nums.length - 2]!, y = nums[nums.length - 1]!;
+          if (active) polys.push(active);
+          const p = applyCTM(cur, x, y);
+          active = { xs: [p.x], ys: [p.y] };
+        }
+        nums.length = 0; break;
+      }
+      case "l": {
+        if (nums.length >= 2 && active) {
+          const x = nums[nums.length - 2]!, y = nums[nums.length - 1]!;
+          const p = applyCTM(cur, x, y);
+          active.xs.push(p.x); active.ys.push(p.y);
+        }
+        nums.length = 0; break;
+      }
+      case "h": case "S": case "s": case "f": case "F":
+      case "f*": case "B": case "B*": case "b": case "b*": case "n":
+        if (active) { polys.push(active); active = null; }
+        nums.length = 0; break;
+      default:
+        if (/^[A-Za-z]/.test(t)) nums.length = 0;
+    }
+  }
+  if (active) polys.push(active);
+  return polys;
+}
+
+describe("generateFramePdf — studs spread along wall length", () => {
+  it("3 studs at 0/600/1200mm produce 3 distinct page X centroids (not stacked)", async () => {
+    // Build a 1500mm × 2400mm wall with 3 studs at x=0/600/1200mm.
+    const studHeight = 2400;
+    const sticks: RfyStick[] = [0, 600, 1200].map((x, i) => ({
+      name: `S${i + 1}`,
+      length: studHeight,
+      type: "stud",
+      flipped: false,
+      profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+      tooling: [],
+      outlineCorners: [
+        { x: x, y: 0 },
+        { x: x + 41, y: 0 },
+        { x: x + 41, y: studHeight },
+        { x: x, y: studHeight },
+      ],
+    }));
+    const doc: RfyDocument = {
+      scheduleVersion: "2",
+      project: {
+        name: "STACK-TEST", jobNum: "T", client: "c", date: "2026-05-09",
+        plans: [{ name: "P", frames: [makeFrame("N1", sticks)] }],
+      },
+    };
+    const bytes = await generateFramePdf(doc, { pageSize: "A3" });
+    const stream = inflateAllStreams(bytes);
+    const polys = parsePolysWithCTM(stream);
+    // Find vertical stick polygons (height >> width, area > marker).
+    const vertSticks = polys.filter(p => {
+      if (p.xs.length !== 4) return false;
+      const w = Math.max(...p.xs) - Math.min(...p.xs);
+      const h = Math.max(...p.ys) - Math.min(...p.ys);
+      return h > w * 5 && Math.max(w, h) > 50;
+    });
+    expect(vertSticks.length).toBe(3);
+    const centroids = vertSticks
+      .map(p => (Math.min(...p.xs) + Math.max(...p.xs)) / 2)
+      .sort((a, b) => a - b);
+    // Three distinct X coords, with at least 100pt between adjacent studs
+    // (a 1500mm-wide frame on A3 fits at scale > 0.5 pt/mm, so 600mm = 300pt).
+    expect(centroids[1]! - centroids[0]!).toBeGreaterThan(100);
+    expect(centroids[2]! - centroids[1]!).toBeGreaterThan(100);
+  });
+});
+
 describe("generateFramePdf — vector-ops regression", () => {
   it("emits stick polygon moveTos within page bounds (in-memory doc)", async () => {
     const doc = makeMinimalDoc(1);
