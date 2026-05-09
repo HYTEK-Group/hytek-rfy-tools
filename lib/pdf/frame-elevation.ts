@@ -693,8 +693,8 @@ function drawStick(
     page.drawLine({
       start: webEdge.a,
       end: webEdge.b,
-      thickness: 1.4,                       // ~3× the regular outline (0.5pt)
-      color: rgb(0.1, 0.1, 0.1),
+      thickness: 2.4,                       // ~5× the regular outline (0.5pt) — visible at any frame scale
+      color: rgb(0, 0, 0),                  // pure black, more contrast vs the grey outline
     });
     drawCSectionMarker(page, m, lipSign, layout);
   }
@@ -948,9 +948,13 @@ function drawCSectionMarker(
   const { s, ox, oy } = layout;
 
   // Marker size in PDF points — fixed visual size regardless of frame scale.
-  const SIZE = 7;             // overall bracket height (web length, in stick-local "along" axis)
+  // Sized so the marker is legible on big frames (3m+ walls) without
+  // dominating small ones. ~doubled from the original 7pt — Scott's
+  // feedback 2026-05-09: at A3 auto-fit on a 3290mm-wide frame the
+  // earlier 7pt marker was near-invisible.
+  const SIZE = 14;            // overall bracket height (web length, in stick-local "along" axis)
   const FLANGE = SIZE * 0.6;  // flange-arm length (lips direction)
-  const OFFSET_PT = 12;       // gap between stick start and marker centre
+  const OFFSET_PT = 18;       // gap between stick start and marker centre
 
   // Direction along the stick (start → end) and its perpendicular.
   const dirX = Math.cos(m.angle);
@@ -988,8 +992,8 @@ function drawCSectionMarker(
     page.drawLine({
       start: pts[i]!,
       end: pts[i + 1]!,
-      thickness: 0.7,
-      color: rgb(0.15, 0.15, 0.15),
+      thickness: 1.4,                       // ~doubled from 0.7pt — Scott reported markers near-invisible at 7pt × 0.7pt stroke on 3m+ frames
+      color: rgb(0, 0, 0),                  // pure black for contrast vs the grey stick outlines
     });
   }
 }
