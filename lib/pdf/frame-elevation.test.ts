@@ -482,6 +482,103 @@ describe("generateFramePdf — vector-ops regression", () => {
   }, 120_000);
 });
 
+// ---------- Phase C: fastener + label + frame.elevation plumbing ----------
+//
+// Asserts that the framecadImportToRfy → generateFramePdf path threads
+// the new side-channel maps end-to-end. Uses a synthetic minimal XML
+// that contains <fastener>, <label>, and per-frame <elevation> so the
+// test doesn't depend on the local Downloads corpus.
+
+describe("generateFramePdf — fasteners + labels + elevation plumbing", () => {
+  it("renders a frame with fasteners, labels, and frame.elevation without crashing", async () => {
+    // Minimal framecad_import XML — single InternalWall frame with one
+    // fastener (M6 SKU 001792) + one label + a non-zero frame elevation.
+    // Two stud + plate sticks so isStudStyleStick + isWallFrame both
+    // exercise the new asymmetric outline path.
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<framecad_import name="PHASE-C-TEST">
+ <jobnum>"PHASE-C"</jobnum>
+ <client>"x"</client>
+ <drawing_info units="Metric" envelope_ref="Centre" stick_ref="Centre">
+  <datedrawn>"01-05-2026"</datedrawn>
+ </drawing_info>
+ <plan name="GF-NLBW-89.075">
+  <elevation>0.0</elevation>
+  <frame name="N1" type="InternalWall">
+   <elevation>1928.000</elevation>
+   <envelope>
+    <vertex>0.0,0.0,0.0</vertex>
+    <vertex>1000.0,0.0,0.0</vertex>
+    <vertex>1000.0,0.0,2400.0</vertex>
+    <vertex>0.0,0.0,2400.0</vertex>
+   </envelope>
+   <label text="Test Callout" size="40.0" angle="0.0" layer="Text">
+    <location>500.0,0.0,1200.0</location>
+   </label>
+   <stick name="T1" type="Plate" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="TopPlate">
+    <start>0.0,0.0,2380.0</start>
+    <end>1000.0,0.0,2380.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>false</flipped>
+   </stick>
+   <stick name="B1" type="Plate" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="BottomPlate">
+    <start>0.0,0.0,20.0</start>
+    <end>1000.0,0.0,20.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>true</flipped>
+   </stick>
+   <stick name="S1" type="Stud" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="Stud">
+    <start>20.0,0.0,2.0</start>
+    <end>20.0,0.0,2378.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>false</flipped>
+   </stick>
+   <stick name="S2" type="Stud" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="Stud">
+    <start>980.0,0.0,2.0</start>
+    <end>980.0,0.0,2378.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>true</flipped>
+   </stick>
+   <fastener name="001792" count="2">
+    <point>20.0,0.0,21.0</point>
+   </fastener>
+   <fastener name="001539" count="10">
+    <point>500.0,0.0,2380.0</point>
+   </fastener>
+  </frame>
+ </plan>
+</framecad_import>`;
+    const result = framecadImportToRfy(xml);
+    expect(result.frameFasteners.size).toBe(1);
+    expect(result.frameFasteners.get("N1")!.length).toBe(2);
+    expect(result.frameLabels.size).toBe(1);
+    expect(result.frameLabels.get("N1")!.length).toBe(1);
+    expect(result.frameElevations.get("N1")).toBe(1928);
+
+    // Render the PDF and confirm the frame page comes out non-empty.
+    const doc = decodeXml(result.xml);
+    const bytes = await generateFramePdf(doc, {
+      pageSize: "A3",
+      frameTypes: result.frameTypes,
+      frameDiagonals: result.frameDiagonals,
+      frameFasteners: result.frameFasteners,
+      frameLabels: result.frameLabels,
+      frameElevations: result.frameElevations,
+    });
+    expect(bytes.length).toBeGreaterThan(2 * 1024);
+    expect(await pageCountOf(bytes)).toBe(1);
+
+    // Confirm fastener marks land somewhere in the rendered stream.
+    // Each fastener emits a circle (drawCircle → bezier curve operators);
+    // 2 fasteners means at least ~8 control-point moveTos for the circles
+    // (4 per arc segment). The minimal frame also has 4 sticks so the
+    // baseline is comfortably above any threshold we set.
+    const stream = inflateAllStreams(bytes);
+    const ptsCount = moveToPoints(stream).length;
+    expect(ptsCount).toBeGreaterThan(20);
+  });
+});
+
 // ---------- Regression: end-stud orientation (lips outward) ----------
 //
 // computeWebOverrides forces lipSign=+1 on the leftmost vertical stud
