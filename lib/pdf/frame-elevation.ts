@@ -804,7 +804,16 @@ function drawStick(
   //   edge 2→3 = -perp side (the other long edge)
   // perp = (-dirY, dirX) (90° CCW of stick direction).
   //
-  // Default: stick.flipped — false → lips on +perp, true → lips on -perp.
+  // Default (interior studs): FrameCAD's `flipped` attribute drives the
+  // C-section opening direction. Empirically (Scott, 2026-05-09 — every
+  // interior stud was facing the wrong way under the previous mapping):
+  //   flipped=false → lips on -perp side
+  //   flipped=true  → lips on +perp side
+  // Web sits opposite the lip side. End-studs and opening jambs are NOT
+  // affected by this — they're driven by the structural position override
+  // in computeWebOverrides (web always faces frame interior regardless of
+  // flipped).
+  //
   // Override: webOverrides Map keyed by stick.name; +1 = lips on +perp,
   // -1 = lips on -perp. See computeWebOverrides for the structural
   // detection rules (frame-end studs, opening jamb studs).
@@ -814,7 +823,7 @@ function drawStick(
   // doesn't double-line their long edges either.
   const studStyle = wallStyle && isStudStyleStick(m);
   if (studStyle) {
-    const fallback = stick.flipped ? -1 : +1;
+    const fallback = stick.flipped ? +1 : -1;
     const lipSign: 1 | -1 = webOverrides.get(stick.name) ?? (fallback as 1 | -1);
 
     // ASYMMETRIC OUTLINE — orientation rule (Scott, 2026-05-09):
@@ -1219,8 +1228,11 @@ function drawDimChains(
   const { s, ox, oy } = layout;
 
   // Walk every stick midline once, classify by orientation.
-  const verticalCrossX = new Set<number>([0]);
-  const horizontalCrossY = new Set<number>([0]);
+  // Detailer's dim chain only labels actual stud positions — NOT
+  // bbox extremes (Scott, 2026-05-09: "you have added extra dimensions").
+  // Empty seeds; positions accumulated from frame.sticks below.
+  const verticalCrossX = new Set<number>();
+  const horizontalCrossY = new Set<number>();
   for (const stick of frame.sticks) {
     const m = stickMidline(stick);
     if (!m) continue;
@@ -1254,7 +1266,8 @@ function drawDimChains(
     thickness: 0.3,
     color: rgb(0, 0, 0),
   });
-  const sortedX = [...verticalCrossX, bb.maxX - bb.minX].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+  // No bbox extremes — only stud positions (matches Detailer convention).
+  const sortedX = [...verticalCrossX].sort((a, b) => a - b);
   // Clash detection between adjacent labels — when two stud positions
   // are closer than MIN_LABEL_GAP_PT in pdf coords, suppress the second
   // one's label (keep the tick so the position is still visible). At
@@ -1301,7 +1314,8 @@ function drawDimChains(
     thickness: 0.3,
     color: rgb(0, 0, 0),
   });
-  const sortedY = [...horizontalCrossY, bb.maxY - bb.minY].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+  // No bbox extremes — only horizontal-member positions.
+  const sortedY = [...horizontalCrossY].sort((a, b) => a - b);
   for (const yMm of sortedY) {
     const yPt = oy + (bb.minY + yMm) * s;
     page.drawLine({
