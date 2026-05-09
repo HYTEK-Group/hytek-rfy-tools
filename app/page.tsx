@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type Mode = "encode-bundle" | "decode-bundle" | "encode-auto" | "rfy-to-csv" | "csv-to-rfy" | "forge-encode";
+type Mode = "encode-bundle" | "decode-bundle" | "encode-auto" | "rfy-to-csv" | "csv-to-rfy" | "forge-encode" | "brain-encode";
 
 const MODE_LABELS: Record<Mode, { title: string; subtitle: string; from: string; accept: string; endpoint: string }> = {
   "encode-bundle": {
@@ -46,6 +46,13 @@ const MODE_LABELS: Record<Mode, { title: string; subtitle: string; from: string;
     from: ".xml",
     accept: ".xml",
     endpoint: "/api/forge/encode",
+  },
+  "brain-encode": {
+    title: "Frame Brain → Bundle + Classification (preview)",
+    subtitle: "Upload <framecad_import>.xml → ZIP with the .rfy + per-plan .csv files PLUS a classification.json that tags each emitted operation against the Tool Operations catalogue. v0 — bytes identical to encode-bundle; new output is the report.",
+    from: ".xml",
+    accept: ".xml",
+    endpoint: "/api/brain/encode",
   },
 };
 
@@ -223,6 +230,11 @@ export default function Page() {
       <h3 className="text-xs uppercase tracking-wider text-yellow-400 mt-10 mb-3">Forge — Detailer-as-oracle (local only)</h3>
       <div className="grid sm:grid-cols-1 gap-6">
         <ConverterCard mode="forge-encode" />
+      </div>
+
+      <h3 className="text-xs uppercase tracking-wider text-yellow-400 mt-10 mb-3">Frame Brain (preview)</h3>
+      <div className="grid sm:grid-cols-1 gap-6">
+        <ConverterCard mode="brain-encode" />
       </div>
 
       <h3 className="text-xs uppercase tracking-wider text-yellow-400 mt-10 mb-3">Forge — Operator Review</h3>
