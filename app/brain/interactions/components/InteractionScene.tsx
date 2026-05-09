@@ -8,7 +8,7 @@
 // parameterised by the interaction's bbox.
 
 "use client";
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import * as THREE from "three";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
@@ -20,6 +20,18 @@ interface InteractionSceneProps {
 }
 
 export function InteractionScene({ config }: InteractionSceneProps) {
+  // CRITICAL: r3f's Canvas uses a ResizeObserver to auto-fit its parent.
+  // On initial mount, the observer sometimes doesn't fire because the
+  // parent's layout is still settling. The Canvas then renders at its
+  // default 300×150 even though its parent is 1500×1500. Forcing a
+  // window resize event right after mount triggers the observer.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      window.dispatchEvent(new Event("resize"));
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [config.id]);
+
   // Compute scene bounding box from each stick's start AND end position.
   // For each stick, after its rotation is applied, the extrusion +Z axis
   // points along the length direction. We compute that direction in world

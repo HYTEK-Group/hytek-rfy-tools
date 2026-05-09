@@ -34,12 +34,23 @@ export function Stick3DOps({ config }: Stick3DOpsProps) {
   const { profile, length, position, rotation, ops } = config;
 
   // ─── 1. Segmented stick geometry ────────────────────────────────────
+  // For a flange-flipped stick (B2B partner pair second member), we
+  // build the geometry from a profile mirrored about its Y axis (negate
+  // X coords), then REVERSE the winding so face normals stay outward.
+  const flipped = config.flangeDir === "flipped";
   const stickGeometry = useMemo(() => {
-    const segments = computeStickSegments(profile, length, ops);
+    let segments = computeStickSegments(profile, length, ops);
+    if (flipped) {
+      // Mirror each profile's points about x=0; reverse the winding.
+      segments = segments.map((seg) => ({
+        ...seg,
+        profile: [...seg.profile].reverse().map((p) => ({ x: -p.x, y: p.y })),
+      }));
+    }
     const geom = buildSegmentedStickGeometry(segments);
     geom.computeVertexNormals();
     return geom;
-  }, [profile, length, ops]);
+  }, [profile, length, ops, flipped]);
 
   // ─── 2. Per-op overlay meshes ───────────────────────────────────────
   // Each overlay is positioned in the stick's LOCAL frame (z = along
@@ -48,31 +59,21 @@ export function Stick3DOps({ config }: Stick3DOpsProps) {
 
   const overlays = useMemo(() => buildOverlayMeshes(profile, ops, length), [profile, ops, length]);
 
-  // ─── 3. Flange-direction flip (B2B partner pair etc.) ───────────────
-  // If flangeDir is "flipped", we mirror the stick about its YZ plane
-  // (negate X axis) so the C-section opens the other way. Used for two
-  // sticks placed flange-to-flange.
-  const flipScale = config.flangeDir === "flipped" ? -1 : 1;
-
   return (
-    <group
-      position={position}
-      rotation={rotation}
-      scale={[flipScale, 1, 1]}
-    >
-      {/* The stick itself — extruded C-section with profile changes
-          baked in at LipNotch/Swage/InnerNotch spans. */}
+    <group position={position} rotation={rotation}>
+      {/* Stick mesh — geometry is already pre-mirrored if flipped. */}
       <mesh geometry={stickGeometry} castShadow receiveShadow>
         <meshStandardMaterial
           color={config.tint ?? "#a8a8b0"}
           metalness={0.7}
           roughness={0.4}
-          side={THREE.DoubleSide}
         />
       </mesh>
-
-      {/* Overlay meshes for point-ops + chamfers. */}
-      {overlays}
+      {/* Overlays — wrapped in a group with scale flip for flipped sticks
+          so overlay positions (e.g. innerWebX) move to the mirrored side. */}
+      <group scale={flipped ? [-1, 1, 1] : [1, 1, 1]}>
+        {overlays}
+      </group>
     </group>
   );
 }
