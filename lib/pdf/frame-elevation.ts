@@ -1604,14 +1604,21 @@ function drawCMarkerBelowStud(
   // Local coords (lx along stick, ly across stick = +perp).
   // The bracket polyline goes:
   //   top-flange-tip → web-top → web-bot → bot-flange-tip
-  // with the FLANGE TIPS in the +lipSign direction (toward lips), so the
-  // OPEN mouth faces the lip / lighter-line side of the stud.
+  //
+  // CONVENTION (Scott, 2026-05-09 N1 side-by-side vs Detailer):
+  // The bracket's OPEN MOUTH faces the WEB side — the SAME side as the
+  // doubled-line edge of the stick rectangle above. NOT the lip side.
+  // Both visual indicators (marker + asymmetric outline) point at the
+  // closed back of the C. The lip side stays clean (no marker, single line).
+  //
+  // Web side = -lipSign × +perp. So flange tips extend in -lipSign direction.
   const halfWeb = SIZE / 2;
+  const webSign = -lipSign as 1 | -1;
   const pts = [
-    { lx: +halfWeb, ly: lipSign * FLANGE },
+    { lx: +halfWeb, ly: webSign * FLANGE },
     { lx: +halfWeb, ly: 0 },
     { lx: -halfWeb, ly: 0 },
-    { lx: -halfWeb, ly: lipSign * FLANGE },
+    { lx: -halfWeb, ly: webSign * FLANGE },
   ].map(({ lx, ly }) => ({
     // Rotate (lx, ly) into PDF coords using stick angle.
     // local-x maps along (dirX, dirY); local-y maps along (-dirY, dirX) = +perp.
