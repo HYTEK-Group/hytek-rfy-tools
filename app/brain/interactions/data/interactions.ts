@@ -203,10 +203,15 @@ export const INTERACTIONS: InteractionConfig[] = [
       // Stud — vertical, top end NESTED inside plate. Length 2398 →
       // tip at world Y=2398, just below the plate's web inner face
       // (Y=2400-t≈2399.25). The last 50mm (z=2348-2398) is swaged.
+      // Position offset by -lf/2 = -20.5 in world X so the stud's
+      // CENTRELINE (not its web back) sits on the joint axis at X=0.
+      // Without this offset the stud was offset to one side of the
+      // plate's LipNotch and the stud's flange tip clipped through the
+      // plate's intact lip on the other side. (Bug fix 2026-05-09.)
       {
         profile: PROFILE_70S41,
         length: 2398,
-        position: [0, 0, 0],
+        position: [-20.5, 0, 0],
         rotation: ROT_VERTICAL_Y,
         label: "Stud (S)",
         ops: [
@@ -274,10 +279,14 @@ export const INTERACTIONS: InteractionConfig[] = [
       // (1800·cos60°, 1800·sin60°, 0) = (900, 1559, 0).
       // Open mouth oriented to face TOWARD the plate above (perpendicular
       // to brace, "above-side" = direction toward plate).
+      // Position offset by -lf/2 in the flange-open direction so the
+      // brace CENTRELINE passes through origin (not its web back).
+      // For 60° "above", flangeOpen = (-sin60, cos60, 0), so offset = -20.5
+      // along that direction = (+17.75, -10.25, 0).
       {
         profile: PROFILE_70S41,
         length: 1800,
-        position: [0, 0, 0],
+        position: [17.75, -10.25, 0],
         rotation: rotForAngledIntoPlate((Math.PI / 180) * 60, "above"),
         label: "Brace (B)",
         ops: [
@@ -345,10 +354,11 @@ export const INTERACTIONS: InteractionConfig[] = [
       "A short cripple stud (Kb) sits between the slab/sole plate and the bottom of an H header. The Kb is chamfered at its lower end and end-capped (Swage + InnerDimple) at its upper end where it meets the header. The header gets a paired-dimple LipNotch — TWO dimples per cut, at Fastener1 and Fastener1+42mm — to register the Kb in both axes.",
     sticks: [
       // Kb (cripple stud) — vertical, 400mm long
+      // Position offset by -lf/2 = -20.5 in world X so centreline at X=0.
       {
         profile: PROFILE_70S41,
         length: 400,
-        position: [0, 0, 0],
+        position: [-20.5, 0, 0],
         rotation: ROT_VERTICAL_Y,
         label: "Cripple (Kb)",
         ops: [
@@ -393,10 +403,12 @@ export const INTERACTIONS: InteractionConfig[] = [
       // Truss web — vertical, top end at world Y=598 (just below chord's
       // web inner face at Y≈599.25). Top 50mm swaged so web's profile
       // fits inside chord's interior cavity.
+      // Position offset by -lf/2 = -20.5 in world X so web's centreline
+      // at X=0 (aligns with chord's LipNotch and joint screws).
       {
         profile: PROFILE_70S41,
         length: 598,
-        position: [0, 0, 0],
+        position: [-20.5, 0, 0],
         rotation: ROT_VERTICAL_Y,
         label: "Web (W)",
         ops: [
@@ -510,10 +522,13 @@ export const INTERACTIONS: InteractionConfig[] = [
       "A 45° diagonal truss web meeting a chord. The web has TrussChamfers at both ends and a Swage end-cap with elongated span (cos compensation) plus an InnerDimple. The chord gets the standard LipNotch + InnerDimple at the projected meeting point.",
     sticks: [
       // Diagonal web — 45° from horizontal
+      // Note: rotForXYAngle uses flangeOpen = (0,0,-1), so flange tips
+      // are in world -Z. Offset by -lf/2 along that direction = (0,0,+20.5)
+      // so the centreline lies in the elevation (Z=0) plane.
       {
         profile: PROFILE_70S41,
         length: 1000,
-        position: [0, 0, 0],
+        position: [0, 0, 20.5],
         rotation: rotForXYAngle(Math.PI / 4),
         label: "Diagonal web (W)",
         ops: [
@@ -557,10 +572,11 @@ export const INTERACTIONS: InteractionConfig[] = [
     sticks: [
       // Wall W-brace at 60° from horizontal, 1800mm. Tip at world
       // (1800·cos60°, 1800·sin60°, 0) = (900, 1559, 0).
+      // Same centreline-offset fix as A2: shift by +17.75, -10.25.
       {
         profile: PROFILE_70S41,
         length: 1800,
-        position: [0, 0, 0],
+        position: [17.75, -10.25, 0],
         rotation: rotForAngledIntoPlate((Math.PI / 180) * 60, "above"),
         label: "Wall brace (W)",
         ops: [
