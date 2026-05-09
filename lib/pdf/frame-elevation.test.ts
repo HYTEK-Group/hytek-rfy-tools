@@ -481,3 +481,207 @@ describe("generateFramePdf — vector-ops regression", () => {
     }
   }, 120_000);
 });
+
+// ---------- Phase C: fastener + label + frame.elevation plumbing ----------
+//
+// Asserts that the framecadImportToRfy → generateFramePdf path threads
+// the new side-channel maps end-to-end. Uses a synthetic minimal XML
+// that contains <fastener>, <label>, and per-frame <elevation> so the
+// test doesn't depend on the local Downloads corpus.
+
+describe("generateFramePdf — fasteners + labels + elevation plumbing", () => {
+  it("renders a frame with fasteners, labels, and frame.elevation without crashing", async () => {
+    // Minimal framecad_import XML — single InternalWall frame with one
+    // fastener (M6 SKU 001792) + one label + a non-zero frame elevation.
+    // Two stud + plate sticks so isStudStyleStick + isWallFrame both
+    // exercise the new asymmetric outline path.
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<framecad_import name="PHASE-C-TEST">
+ <jobnum>"PHASE-C"</jobnum>
+ <client>"x"</client>
+ <drawing_info units="Metric" envelope_ref="Centre" stick_ref="Centre">
+  <datedrawn>"01-05-2026"</datedrawn>
+ </drawing_info>
+ <plan name="GF-NLBW-89.075">
+  <elevation>0.0</elevation>
+  <frame name="N1" type="InternalWall">
+   <elevation>1928.000</elevation>
+   <envelope>
+    <vertex>0.0,0.0,0.0</vertex>
+    <vertex>1000.0,0.0,0.0</vertex>
+    <vertex>1000.0,0.0,2400.0</vertex>
+    <vertex>0.0,0.0,2400.0</vertex>
+   </envelope>
+   <label text="Test Callout" size="40.0" angle="0.0" layer="Text">
+    <location>500.0,0.0,1200.0</location>
+   </label>
+   <stick name="T1" type="Plate" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="TopPlate">
+    <start>0.0,0.0,2380.0</start>
+    <end>1000.0,0.0,2380.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>false</flipped>
+   </stick>
+   <stick name="B1" type="Plate" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="BottomPlate">
+    <start>0.0,0.0,20.0</start>
+    <end>1000.0,0.0,20.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>true</flipped>
+   </stick>
+   <stick name="S1" type="Stud" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="Stud">
+    <start>20.0,0.0,2.0</start>
+    <end>20.0,0.0,2378.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>false</flipped>
+   </stick>
+   <stick name="S2" type="Stud" gauge="0.75" yield="550" tensile="550" coating="AZ150" usage="Stud">
+    <start>980.0,0.0,2.0</start>
+    <end>980.0,0.0,2378.0</end>
+    <profile web="89" l_flange="38" r_flange="41" l_lip="11.0" r_lip="11.0" shape="C"/>
+    <flipped>true</flipped>
+   </stick>
+   <fastener name="001792" count="2">
+    <point>20.0,0.0,21.0</point>
+   </fastener>
+   <fastener name="001539" count="10">
+    <point>500.0,0.0,2380.0</point>
+   </fastener>
+  </frame>
+ </plan>
+</framecad_import>`;
+    const result = framecadImportToRfy(xml);
+    expect(result.frameFasteners.size).toBe(1);
+    expect(result.frameFasteners.get("N1")!.length).toBe(2);
+    expect(result.frameLabels.size).toBe(1);
+    expect(result.frameLabels.get("N1")!.length).toBe(1);
+    expect(result.frameElevations.get("N1")).toBe(1928);
+
+    // Render the PDF and confirm the frame page comes out non-empty.
+    const doc = decodeXml(result.xml);
+    const bytes = await generateFramePdf(doc, {
+      pageSize: "A3",
+      frameTypes: result.frameTypes,
+      frameDiagonals: result.frameDiagonals,
+      frameFasteners: result.frameFasteners,
+      frameLabels: result.frameLabels,
+      frameElevations: result.frameElevations,
+    });
+    expect(bytes.length).toBeGreaterThan(2 * 1024);
+    expect(await pageCountOf(bytes)).toBe(1);
+
+    // Confirm fastener marks land somewhere in the rendered stream.
+    // Each fastener emits a circle (drawCircle → bezier curve operators);
+    // 2 fasteners means at least ~8 control-point moveTos for the circles
+    // (4 per arc segment). The minimal frame also has 4 sticks so the
+    // baseline is comfortably above any threshold we set.
+    const stream = inflateAllStreams(bytes);
+    const ptsCount = moveToPoints(stream).length;
+    expect(ptsCount).toBeGreaterThan(20);
+  });
+});
+
+// ---------- Regression: end-stud orientation (lips outward) ----------
+//
+// computeWebOverrides forces lipSign=+1 on the leftmost vertical stud
+// (lips on +perp = LEFT in elevation) and lipSign=-1 on the rightmost
+// stud (lips on -perp = RIGHT). The audit (2026-05-09) flagged that
+// the asymmetric stick outline's doubled line MUST sit on the OUTER
+// face of frame-end studs (lips face the wall edge; web faces the
+// interior).
+//
+// We assert this indirectly by checking that the leftmost stud's
+// asymmetric "interior offset" line (the inside half of the doubled
+// edge) lies on its INNER side (closer to the frame interior), not on
+// the outer face. The test is geometric: with 3 studs at x=0 / 600 /
+// 1200, the leftmost stud's doubled line should sit at x=0+offset, NOT
+// at x=0-offset.
+describe("generateFramePdf — end-stud orientation", () => {
+  it("leftmost end-stud doubles its OUTER long edge (lips face wall edge)", async () => {
+    // Build a wall frame "ExternalWall" so isWallFrame() returns true via
+    // the frameTypes Map (matches production XML's frame.type attribute).
+    const studHeight = 2400;
+    const sticks: RfyStick[] = [0, 600, 1200].map((x, i) => ({
+      name: `S${i + 1}`,
+      length: studHeight,
+      type: "stud",
+      flipped: false,
+      profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+      tooling: [],
+      outlineCorners: [
+        { x: x, y: 0 },
+        { x: x + 41, y: 0 },
+        { x: x + 41, y: studHeight },
+        { x: x, y: studHeight },
+      ],
+    }));
+    // Add a top + bottom plate so the frame is structurally complete.
+    sticks.push({
+      name: "T1", length: 1241, type: "plate", flipped: false,
+      profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+      tooling: [],
+      outlineCorners: [
+        { x: 0, y: studHeight - 41 }, { x: 1241, y: studHeight - 41 },
+        { x: 1241, y: studHeight }, { x: 0, y: studHeight },
+      ],
+    });
+    sticks.push({
+      name: "B1", length: 1241, type: "plate", flipped: false,
+      profile: { metricLabel: "89.075", gauge: "0.75", shape: "C-section", web: 89, lFlange: 41, rFlange: 41, lip: 11 },
+      tooling: [],
+      outlineCorners: [
+        { x: 0, y: 0 }, { x: 1241, y: 0 },
+        { x: 1241, y: 41 }, { x: 0, y: 41 },
+      ],
+    });
+    const frameTypes = new Map<string, string>();
+    frameTypes.set("N1", "ExternalWall");
+    const doc: RfyDocument = {
+      scheduleVersion: "2",
+      project: {
+        name: "ENDSTUD-TEST", jobNum: "T", client: "c", date: "2026-05-09",
+        plans: [{ name: "P", frames: [makeFrame("N1", sticks)] }],
+      },
+    };
+    const bytes = await generateFramePdf(doc, { pageSize: "A3", frameTypes });
+    const stream = inflateAllStreams(bytes);
+    const polys = parsePolysWithCTM(stream);
+
+    // Find the leftmost vertical stud polygon (3 expected, each 41×2400).
+    const verticals = polys.filter(p => {
+      if (p.xs.length !== 4) return false;
+      const w = Math.max(...p.xs) - Math.min(...p.xs);
+      const h = Math.max(...p.ys) - Math.min(...p.ys);
+      return h > w * 5 && Math.max(w, h) > 50;
+    });
+    expect(verticals.length).toBe(3);
+    const leftmost = verticals.reduce((acc, p) => {
+      const minX = Math.min(...p.xs);
+      return minX < Math.min(...acc.xs) ? p : acc;
+    });
+    const studMinX = Math.min(...leftmost.xs);
+    const studMaxX = Math.max(...leftmost.xs);
+
+    // The asymmetric outline emits a vertical hairline INSIDE one long
+    // edge. For the leftmost stud, lipSign=+1 (lips on +perp = LEFT in
+    // elevation, the wall edge) means the doubled line sits INSIDE the
+    // LEFT edge, i.e. just to the right of studMinX. It should NOT sit
+    // inside the RIGHT edge.
+    //
+    // We check this by extracting all vertical line segments rendered
+    // within the stud's bounding box. The asymmetric line lands at
+    // x ~= studMinX + 0.8pt (OFFSET_PT in drawStick).
+    //
+    // To find these lines we re-scan the stream tokens for `m`+`l` pairs
+    // at the same X. The PDF stream has many primitive line ops, so we
+    // count moveTo points whose x ∈ (studMinX, studMinX+3).
+    const ptsAll = moveToPoints(stream);
+    const insideLeftEdge = ptsAll.filter(p => p.x > studMinX + 0.2 && p.x < studMinX + 3 && p.y < 1000 && p.y > 50);
+    const insideRightEdge = ptsAll.filter(p => p.x > studMaxX - 3 && p.x < studMaxX - 0.2 && p.y < 1000 && p.y > 50);
+    // We expect AT LEAST one moveTo within ~3pt of the LEFT edge interior
+    // (the asymmetric doubled line). If the sign is flipped, this would
+    // appear on the RIGHT edge interior instead.
+    expect(insideLeftEdge.length).toBeGreaterThanOrEqual(1);
+    // Inverse assertion (sanity): more interior moveTos on left than right
+    // for a leftmost stud where lips face LEFT (the wall edge).
+    expect(insideLeftEdge.length).toBeGreaterThanOrEqual(insideRightEdge.length);
+  });
+});

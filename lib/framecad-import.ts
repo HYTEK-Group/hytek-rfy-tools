@@ -74,6 +74,20 @@ interface RawFrame {
    *  draws these as construction lines crossing the wall (the X-pattern
    *  Scott pointed at on HG260002 frame N9, "Strap Brace - Near side"). */
   diagonalLines: { start: Vec3; end: Vec3 }[];
+  /** Parsed `<fastener>` elements. Each has a SKU `name`, `count`, and a
+   *  single `<point>` child with X,Y,Z. M6 self-drillers (001792) cluster
+   *  at every stud×plate junction and Detailer renders each as a small
+   *  open circle. Heavy fasteners (count >= 10, e.g. 001539) get a larger
+   *  outline-circle. */
+  fasteners: { pos: Vec3; name: string; count: number }[];
+  /** Parsed `<label>` elements — text callouts in elevation (e.g. "Pack
+   *  jamb out on-site", "--Double Brace--"). Each carries text/size/angle
+   *  attributes plus a `<location>` child. Drawn rotated, MalgunGothic-ish
+   *  (we use Helvetica). */
+  labels: { pos: Vec3; text: string; size: number; angle: number }[];
+  /** Frame `<elevation>` value — Z-floor of the frame in mm. Used in the
+   *  PDF title block "Panel RL" field. */
+  elevation: number;
 }
 
 interface RawPlan {
@@ -131,7 +145,7 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
     attributeNamePrefix: "@_",
     parseAttributeValue: true,
     parseTagValue: false,
-    isArray: (name) => ["plan", "frame", "stick", "vertex", "tool_action", "line"].includes(name),
+    isArray: (name) => ["plan", "frame", "stick", "vertex", "tool_action", "line", "fastener", "label"].includes(name),
   });
   const doc = parser.parse(xmlText);
   const root = doc.framecad_import;
@@ -222,6 +236,42 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         diagonalLines.push({ start: parseTriple(startText), end: parseTriple(endText) });
       }
 
+      // Parse <fastener> elements. Each fastener has @_name (SKU like
+       // "001792" = M6 self-driller, "001539" = heavy bracket bolt),
+       // @_count, and a single <point>X,Y,Z</point> child. Detailer
+       // renders these as small open circles (count<10) or larger outline
+       // circles (count>=10) at the junction position.
+      const fasteners: { pos: Vec3; name: string; count: number }[] = [];
+      for (const fa of (frameNode.fastener ?? []) as Array<{
+        "@_name"?: string;
+        "@_count"?: number | string;
+        point?: string | { "#text"?: string };
+      }>) {
+        const name = String(fa["@_name"] ?? "");
+        const count = Number(fa["@_count"] ?? 0);
+        const pointText = typeof fa.point === "string" ? fa.point : fa.point?.["#text"] ?? "";
+        if (!pointText) continue;
+        fasteners.push({ pos: parseTriple(pointText), name, count });
+      }
+
+      // Parse <label> elements — text callouts in elevation.
+      const labels: { pos: Vec3; text: string; size: number; angle: number }[] = [];
+      for (const lb of (frameNode.label ?? []) as Array<{
+        "@_text"?: string;
+        "@_size"?: number | string;
+        "@_angle"?: number | string;
+        "@_layer"?: string;
+        location?: string | { "#text"?: string };
+      }>) {
+        const text = String(lb["@_text"] ?? "").trim();
+        if (!text) continue;
+        const size = Number(lb["@_size"] ?? 0);
+        const angle = Number(lb["@_angle"] ?? 0);
+        const locText = typeof lb.location === "string" ? lb.location : lb.location?.["#text"] ?? "";
+        if (!locText) continue;
+        labels.push({ pos: parseTriple(locText), text, size, angle });
+      }
+
       const frame: RawFrame = {
         name: String(frameNode["@_name"] ?? "F1"),
         type: String(frameNode["@_type"] ?? ""),
@@ -229,6 +279,9 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         sticks: [],
         serviceActions,
         diagonalLines,
+        fasteners,
+        labels,
+        elevation: 0, // overwritten below once frameElevation is known
       };
       // Frame z range — used to detect plate-end vs stud-end of Kb braces.
       const envZs = envelopeRaw.map(v => v.z);
@@ -240,6 +293,7 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
       // (above-door rough opening sills) sit at z = elevation + 61.5.
       const elevText = (frameNode.elevation && typeof frameNode.elevation === "object" ? (frameNode.elevation as { "#text"?: string })["#text"] : frameNode.elevation) ?? "";
       const frameElevation = Number(String(elevText).trim()) || 0;
+      frame.elevation = frameElevation;
 
       // Resolve machine setup ONCE per frame based on first stick's profile web.
       // All sticks in a frame share the same profile size in HYTEK's workflow.
@@ -757,6 +811,17 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
   /** frameName → projected diagonal lines (strap braces + anchor marks)
    *  in elevation-mm coords, ready to render alongside sticks. */
   frameDiagonals: Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]>;
+  /** frameName → projected fasteners (M6 screws + heavy fasteners) in
+   *  elevation-mm coords. Each carries the SKU name + count so the
+   *  renderer can pick the marker shape and the title block can sum
+   *  per-frame totals. */
+  frameFasteners: Map<string, { pos: { x: number; y: number }; name: string; count: number }[]>;
+  /** frameName → projected text callouts in elevation-mm coords, with
+   *  size + rotation angle from the source <label> attributes. */
+  frameLabels: Map<string, { pos: { x: number; y: number }; text: string; size: number; angle: number }[]>;
+  /** frameName → frame elevation (Z floor) in mm. Used by the PDF
+   *  title block "Panel RL" field. */
+  frameElevations: Map<string, number>;
 } {
   const project = framecadImportToParsedProject(xmlText);
   // Default to lenient=true: roof panels (RP) and other non-rectangular envelopes
@@ -778,18 +843,41 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
   const { plans: rawPlans } = parsePlans(xmlText);
   const frameTypes = new Map<string, string>();
   const frameDiagonals = new Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]>();
+  const frameFasteners = new Map<string, { pos: { x: number; y: number }; name: string; count: number }[]>();
+  const frameLabels = new Map<string, { pos: { x: number; y: number }; text: string; size: number; angle: number }[]>();
+  const frameElevations = new Map<string, number>();
   for (const plan of rawPlans) {
     for (const frame of plan.frames) {
       if (frame.type) frameTypes.set(frame.name, frame.type);
-      if (!frame.diagonalLines.length || !frame.envelope) continue;
+      frameElevations.set(frame.name, frame.elevation);
+      if (!frame.envelope) continue;
       let basis: FrameBasis | null = null;
       try { basis = deriveFrameBasis(frame.envelope, true); } catch { /* skip — same fallback as sticks */ }
       if (!basis) continue;
-      const projected = frame.diagonalLines.map(ln => ({
-        start: projectToFrameLocal(ln.start, basis!),
-        end: projectToFrameLocal(ln.end, basis!),
-      }));
-      frameDiagonals.set(frame.name, projected);
+      if (frame.diagonalLines.length > 0) {
+        const projected = frame.diagonalLines.map(ln => ({
+          start: projectToFrameLocal(ln.start, basis!),
+          end: projectToFrameLocal(ln.end, basis!),
+        }));
+        frameDiagonals.set(frame.name, projected);
+      }
+      if (frame.fasteners.length > 0) {
+        const projected = frame.fasteners.map(fa => ({
+          pos: projectToFrameLocal(fa.pos, basis!),
+          name: fa.name,
+          count: fa.count,
+        }));
+        frameFasteners.set(frame.name, projected);
+      }
+      if (frame.labels.length > 0) {
+        const projected = frame.labels.map(lb => ({
+          pos: projectToFrameLocal(lb.pos, basis!),
+          text: lb.text,
+          size: lb.size,
+          angle: lb.angle,
+        }));
+        frameLabels.set(frame.name, projected);
+      }
     }
   }
 
@@ -803,6 +891,9 @@ export function framecadImportToRfy(xmlText: string, options: { lenient?: boolea
     jobnum: project.jobNum,
     frameTypes,
     frameDiagonals,
+    frameFasteners,
+    frameLabels,
+    frameElevations,
     client: project.client,
     date: project.date,
   };

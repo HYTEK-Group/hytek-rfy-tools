@@ -26,6 +26,7 @@ import {
   PDFPage,
   StandardFonts,
   rgb,
+  degrees,
   type RGB,
   pushGraphicsState,
   popGraphicsState,
@@ -87,6 +88,25 @@ export interface PdfOptions {
    * carry ~12 lines each.
    */
   frameDiagonals?: Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]>;
+  /**
+   * Optional frameName → fastener positions in elevation-mm coords.
+   * Source: `<fastener>` elements in the framecad XML. M6 self-drillers
+   * (SKU 001792) cluster at every stud×plate junction; heavy fasteners
+   * (count >= 10, e.g. 001539) get a larger marker.
+   */
+  frameFasteners?: Map<string, { pos: { x: number; y: number }; name: string; count: number }[]>;
+  /**
+   * Optional frameName → text callouts in elevation-mm coords. Source:
+   * `<label>` elements in the framecad XML. Each carries text + size (mm)
+   * + rotation angle (deg).
+   */
+  frameLabels?: Map<string, { pos: { x: number; y: number }; text: string; size: number; angle: number }[]>;
+  /**
+   * Optional frameName → frame elevation (Z-floor) in mm. The codec doesn't
+   * preserve frame.elevation through encode/decode; this side-channel mirrors
+   * the frameTypes pattern. Used in the title block "Panel RL" field.
+   */
+  frameElevations?: Map<string, number>;
 }
 
 /**
@@ -104,6 +124,9 @@ export async function generateFramePdf(
     showToolingMarks: options.showToolingMarks ?? true,
     frameTypes: options.frameTypes ?? new Map(),
     frameDiagonals: options.frameDiagonals ?? new Map(),
+    frameFasteners: options.frameFasteners ?? new Map(),
+    frameLabels: options.frameLabels ?? new Map(),
+    frameElevations: options.frameElevations ?? new Map(),
   };
 
   const pdf = await PDFDocument.create();
@@ -115,12 +138,16 @@ export async function generateFramePdf(
   const helv = await pdf.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
+  // Total page count — needed up-front for the "View N of M" footer.
+  let totalPages = 0;
+  for (const plan of doc.project.plans) totalPages += plan.frames.length;
+
   let pageCount = 0;
   for (const plan of doc.project.plans) {
     for (const frame of plan.frames) {
       const page = pdf.addPage(pageDims(opts.pageSize));
-      drawFramePage(page, doc, plan.name, frame, helv, helvBold, opts);
       pageCount++;
+      drawFramePage(page, doc, plan.name, frame, helv, helvBold, opts, pageCount, totalPages);
     }
   }
 
@@ -155,24 +182,28 @@ function pageDims(size: PdfPageSize): [number, number] {
 }
 
 // ---------- Tool color palette ----------
-// Mirror of app/viewer/lib/tool-colors.ts but as RGB tuples for pdf-lib.
-// Kept in-sync manually — both files document the same palette decision.
+// Detailer renders ALL tooling marks in pure black, with shape variation
+// telling the operator which op is which. The previous bright-RGB palette
+// (mirror of app/viewer/lib/tool-colors.ts) was Agent 2's invention for
+// the on-screen viewer — Detailer's printed PDFs are monochrome.
+// Kept as a typed Record so drawToolOp's lookup is still O(1) and the
+// shape-by-type switch in drawMarker is unchanged.
 
 const TOOL_COLOR: Record<ToolType, RGB> = {
-  LipNotch: rgb(0.94, 0.27, 0.27),       // #ef4444
-  LeftFlange: rgb(0.98, 0.45, 0.09),      // #f97316
-  RightFlange: rgb(0.93, 0.28, 0.6),      // #ec4899
-  LeftPartialFlange: rgb(0.98, 0.44, 0.52), // #fb7185
-  RightPartialFlange: rgb(0.99, 0.64, 0.69), // #fda4af
-  InnerDimple: rgb(0.98, 0.8, 0.08),       // #facc15 (HYTEK yellow-adjacent)
-  Swage: rgb(0.96, 0.62, 0.04),            // #f59e0b
-  InnerNotch: rgb(0.66, 0.33, 0.97),       // #a855f7
-  Web: rgb(0.02, 0.71, 0.83),              // #06b6d4
-  Bolt: rgb(0.23, 0.51, 0.96),             // #3b82f6
-  ScrewHoles: rgb(0.13, 0.77, 0.37),       // #22c55e
-  InnerService: rgb(0.08, 0.72, 0.65),     // #14b8a6
-  Chamfer: rgb(0.52, 0.8, 0.09),           // #84cc16
-  TrussChamfer: rgb(0.52, 0.8, 0.09),      // same — same physical op
+  LipNotch: rgb(0, 0, 0),
+  LeftFlange: rgb(0, 0, 0),
+  RightFlange: rgb(0, 0, 0),
+  LeftPartialFlange: rgb(0, 0, 0),
+  RightPartialFlange: rgb(0, 0, 0),
+  InnerDimple: rgb(0, 0, 0),
+  Swage: rgb(0, 0, 0),
+  InnerNotch: rgb(0, 0, 0),
+  Web: rgb(0, 0, 0),
+  Bolt: rgb(0, 0, 0),
+  ScrewHoles: rgb(0, 0, 0),
+  InnerService: rgb(0, 0, 0),
+  Chamfer: rgb(0, 0, 0),
+  TrussChamfer: rgb(0, 0, 0),
 };
 
 // ---------- Geometry helpers (mirror app/viewer/lib/geometry.ts) ----------
@@ -353,9 +384,11 @@ interface PageLayout {
   titleBottomPt: number;
 }
 
-const MARGIN_PT = 36;          // ~12.7mm — page margin
-const TITLE_HEIGHT_PT = 60;    // title block at top
-const FOOTER_HEIGHT_PT = 24;   // optional footer
+const MARGIN_PT = 24;            // ~8.5mm — page margin (Detailer is tighter than 36pt)
+const TOP_BOM_HEIGHT_PT = 64;    // 4-row BOM strip above the drawing area
+const FOOTER_HEIGHT_PT = 60;     // 3-row footer (Joins+Quantity / Specs grid / Dwg block)
+const DIM_CHAIN_BOTTOM_PT = 36;  // height of the per-stud bottom dim-chain band
+const DIM_CHAIN_RIGHT_PT = 36;   // width of the per-feature right dim-chain band
 
 /**
  * True iff the frame should render in "wall-elevation" style — thin
@@ -429,21 +462,28 @@ function drawFramePage(
   frame: RfyFrame,
   font: any,
   fontBold: any,
-  opts: Required<PdfOptions>
+  opts: Required<PdfOptions>,
+  pageNum: number,
+  totalPages: number,
 ): void {
   const W = page.getWidth();
   const H = page.getHeight();
 
-  // Title block at top.
-  drawTitleBlock(page, doc, planName, frame, font, fontBold, W, H);
-
   // Drawing-area bbox in pt.
+  // Top BOM strip occupies the band immediately under the top margin.
+  // Footer occupies the band immediately above the bottom margin.
+  // Dim chains live INSIDE the drawing area (so the frame sits above the
+  // bottom dim-chain band and to the LEFT of the right dim-chain band).
   const drawX0 = MARGIN_PT;
   const drawY0 = MARGIN_PT + FOOTER_HEIGHT_PT;
   const drawX1 = W - MARGIN_PT;
-  const drawY1 = H - MARGIN_PT - TITLE_HEIGHT_PT;
-  const drawW = drawX1 - drawX0;
-  const drawH = drawY1 - drawY0;
+  const drawY1 = H - MARGIN_PT - TOP_BOM_HEIGHT_PT;
+  const innerX0 = drawX0;
+  const innerY0 = drawY0 + DIM_CHAIN_BOTTOM_PT;
+  const innerX1 = drawX1 - DIM_CHAIN_RIGHT_PT;
+  const innerY1 = drawY1;
+  const drawW = innerX1 - innerX0;
+  const drawH = innerY1 - innerY0;
 
   const bb = frameBBox(frame);
   if (!bb) {
@@ -468,20 +508,13 @@ function drawFramePage(
   // Center the frame in the drawing area at the chosen scale.
   const renderedWidth = widthMm * s;
   const renderedHeight = heightMm * s;
-  const ox = drawX0 + (drawW - renderedWidth) / 2 - bb.minX * s;
-  const oy = drawY0 + (drawH - renderedHeight) / 2 - bb.minY * s;
+  const ox = innerX0 + (drawW - renderedWidth) / 2 - bb.minX * s;
+  const oy = innerY0 + (drawH - renderedHeight) / 2 - bb.minY * s;
 
   const layout: PageLayout = { s, ox, oy, titleBottomPt: drawY1 };
 
-  // Frame outline (light reference rectangle for the bbox).
-  page.drawRectangle({
-    x: ox + bb.minX * s,
-    y: oy + bb.minY * s,
-    width: widthMm * s,
-    height: heightMm * s,
-    borderColor: rgb(0.85, 0.85, 0.85),
-    borderWidth: 0.5,
-  });
+  // Top BOM strip (per-profile inventory + Assembly Weight + M6 + Diagonal).
+  drawTopBomStrip(page, doc, planName, frame, font, fontBold, opts, W, H);
 
   // Sticks.
   // wallStyle = render vertical/diagonal sticks as outline-only thin
@@ -502,121 +535,169 @@ function drawFramePage(
     drawStick(page, stick, layout, font, opts, wallStyle, webOverrides);
   }
 
+  // C-section junction markers — Detailer draws a small U-bracket UNDER
+  // the bottom plate at each (stud × bottom-plate) junction, opening
+  // upward toward the stud. NOT one per stud individually — the bracket
+  // sits on the plate at the junction X, indicating the C's lip
+  // direction. Width = stud width, height ~7pt.
+  if (wallStyle) {
+    drawCJunctionMarkers(page, frame, bb, layout, webOverrides);
+  }
+
   // Diagonal lines from source XML (<line layer="0">) — strap braces +
   // anchor marks. Drawn after sticks so they overlay (Detailer's
   // convention; the X-pattern is meant to read across the wall surface,
   // not be hidden behind plate fills).
   const diagonals = opts.frameDiagonals.get(frame.name);
   if (diagonals && diagonals.length > 0) {
-    drawDiagonalLines(page, diagonals, layout);
+    drawStrapBrace(page, diagonals, layout, font);
+    // Bracing title above the drawing — Detailer titles bracing pages
+    // "### Strap Brace - Near side" or "### Double Strap Brace - Near side"
+    // when the line count exceeds ~18 (paired anchor sets at both ends of
+    // two diagonals).
+    const bracingTitle = diagonals.length > 18
+      ? "### Double Strap Brace - Near side"
+      : "### Strap Brace - Near side";
+    page.drawText(bracingTitle, {
+      x: innerX0 + drawW / 2 - bracingTitle.length * 2.5,
+      y: drawY1 - 12,
+      size: 9,
+      font: fontBold,
+      color: rgb(0, 0, 0),
+    });
   }
 
-  // Dimension lines (simple — overall width + height of bbox).
-  if (opts.showDimensions) {
-    drawOverallDimensions(page, bb, layout, font);
+  // Fastener marks — small open circles at every stud×plate junction.
+  const fasteners = opts.frameFasteners.get(frame.name);
+  if (fasteners && fasteners.length > 0) {
+    drawFasteners(page, fasteners, layout);
   }
+
+  // Text callouts (<label>) — rotated, sized from the source XML's mm
+  // size (multiplied by 0.5 for a reasonable pt size).
+  const labels = opts.frameLabels.get(frame.name);
+  if (labels && labels.length > 0) {
+    drawCallouts(page, labels, layout, font);
+  }
+
+  // Per-stud bottom dim chain + per-feature right dim chain.
+  if (opts.showDimensions) {
+    drawDimChains(page, frame, bb, layout, font);
+  }
+
+  // 3-row footer: Joins/Quantity/Status, Specs grid, Dwg/Client/Job.
+  drawFooter(page, doc, planName, frame, font, fontBold, opts, pageNum, totalPages, W);
 }
 
-function drawTitleBlock(
+/**
+ * Top BOM strip — 4-row inventory band drawn above the elevation drawing.
+ * Source data: frame.sticks (grouped by profile.metricLabel + gauge),
+ * frame.weight, plan.name, fastener counts (computed from <fastener>
+ * elements via opts.frameFasteners).
+ *
+ * Row layout (top → bottom):
+ *   1. Per-profile inventory cells: `<code> | <count> | <total-length>mm`
+ *      one cell per (profile.metricLabel + gauge) group.
+ *   2. `Assembly Weight | <weight>kg | Working Sheet: <plan.name> | M6 Screw | <count>`
+ *   3. `Powered by FRAMECAD Structure ® | Diagonal = <round(hypot(width,height))>`
+ *
+ * Detailer reference: HG260002-NLBW-DETAILER-REF.pdf — every page carries
+ * this strip, identical layout independent of the frame.
+ */
+function drawTopBomStrip(
   page: PDFPage,
   doc: RfyDocument,
   planName: string,
   frame: RfyFrame,
   font: any,
   fontBold: any,
+  opts: Required<PdfOptions>,
   W: number,
-  H: number
+  H: number,
 ): void {
   const x0 = MARGIN_PT;
   const y1 = H - MARGIN_PT;
-  const y0 = y1 - TITLE_HEIGHT_PT;
+  const y0 = y1 - TOP_BOM_HEIGHT_PT;
   const x1 = W - MARGIN_PT;
+  const stripW = x1 - x0;
 
-  // Title block border.
+  // Row Y coordinates (top → bottom).
+  const row1Y = y1 - 14;
+  const row2Y = y1 - 30;
+  const row3Y = y1 - 46;
+
+  // Outline (single thin border around the whole strip — the cell dividers
+  // are implicit from the column layout).
   page.drawRectangle({
     x: x0,
     y: y0,
-    width: x1 - x0,
-    height: TITLE_HEIGHT_PT,
+    width: stripW,
+    height: TOP_BOM_HEIGHT_PT,
     borderColor: rgb(0, 0, 0),
-    borderWidth: 1,
-    color: rgb(1, 0.95, 0.7), // light HYTEK yellow tint
+    borderWidth: 0.4,
+    color: undefined,
   });
 
-  // HYTEK brand bar on the right.
+  // ─ Row 1: per-profile inventory ────────────────────────────────────────
+  // Group sticks by profile.metricLabel + gauge.
+  const byProfile = new Map<string, { count: number; totalLength: number }>();
+  for (const stick of frame.sticks) {
+    const key = `${stick.profile.metricLabel}/${stick.profile.gauge}`;
+    const cur = byProfile.get(key) ?? { count: 0, totalLength: 0 };
+    cur.count += 1;
+    cur.totalLength += stick.length ?? 0;
+    byProfile.set(key, cur);
+  }
+  const profileEntries = [...byProfile.entries()];
+  const cellW = profileEntries.length > 0 ? Math.min(180, stripW / profileEntries.length) : stripW;
+  let cx = x0 + 6;
+  for (const [code, info] of profileEntries) {
+    const cellText = `${code}   |   ${info.count}   |   ${Math.round(info.totalLength)}mm`;
+    page.drawText(cellText, { x: cx, y: row1Y, size: 8, font, color: rgb(0, 0, 0) });
+    cx += cellW;
+    if (cx > x1 - 20) break;
+  }
+
+  // ─ Row 2: Assembly Weight + Working Sheet + M6 Screw count ─────────────
+  // Sum count across all 001792 fasteners (M6 self-driller SKU).
+  const fasteners = opts.frameFasteners.get(frame.name) ?? [];
+  let m6Count = 0;
+  for (const f of fasteners) if (f.name === "001792") m6Count += f.count;
+  const weight = (frame.weight ?? 0).toFixed(1);
+  const row2 = `Assembly Weight   |   ${weight}kg   |   Working Sheet: ${planName}   |   M6 Screw   |   ${m6Count}`;
+  page.drawText(row2, { x: x0 + 6, y: row2Y, size: 8, font, color: rgb(0, 0, 0) });
+
+  // ─ Row 3: Powered by + Diagonal ────────────────────────────────────────
+  const wMm = frame.length ?? 0;
+  const hMm = frame.height ?? 0;
+  const diagonal = Math.round(Math.hypot(wMm, hMm));
+  page.drawText(
+    `Powered by FRAMECAD Structure (R)   |   Diagonal = ${diagonal}`,
+    { x: x0 + 6, y: row3Y, size: 8, font, color: rgb(0, 0, 0) },
+  );
+
+  // HYTEK brand bar (small, top-right corner) — kept from the original
+  // title block as the only colour in the layout. Identifies the renderer's
+  // origin without dominating the page.
+  const brandW = 72;
   page.drawRectangle({
-    x: x1 - 110,
-    y: y0,
-    width: 110,
-    height: TITLE_HEIGHT_PT,
+    x: x1 - brandW,
+    y: y1 - 12,
+    width: brandW,
+    height: 10,
     color: rgb(0.137, 0.122, 0.125), // HYTEK black #231F20
   });
   page.drawText("HYTEK", {
-    x: x1 - 95,
-    y: y0 + TITLE_HEIGHT_PT / 2 - 4,
-    size: 18,
+    x: x1 - brandW + 8,
+    y: y1 - 10,
+    size: 7,
     font: fontBold,
     color: rgb(1, 0.796, 0.02), // HYTEK yellow #FFCB05
   });
 
-  // Left-side metadata.
-  const padX = 10;
-  const lineH = 12;
-  let cy = y1 - 16;
-  page.drawText(`Frame: ${frame.name}`, {
-    x: x0 + padX,
-    y: cy,
-    size: 13,
-    font: fontBold,
-    color: rgb(0, 0, 0),
-  });
-  cy -= lineH;
-  page.drawText(`Plan: ${planName}`, {
-    x: x0 + padX,
-    y: cy,
-    size: 9,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
-  cy -= lineH;
-
-  const lengthM = (frame.length ?? 0) / 1000;
-  const heightM = (frame.height ?? 0) / 1000;
-  page.drawText(
-    `Length: ${lengthM.toFixed(3)} m   Height: ${heightM.toFixed(3)} m   Weight: ${(frame.weight ?? 0).toFixed(1)} kg`,
-    {
-      x: x0 + padX,
-      y: cy,
-      size: 9,
-      font,
-      color: rgb(0.2, 0.2, 0.2),
-    }
-  );
-
-  // Center: project + job number.
-  const centerX = x0 + (x1 - x0) / 2 - 100;
-  page.drawText(`Project: ${truncate(doc.project.name, 60)}`, {
-    x: centerX,
-    y: y1 - 16,
-    size: 9,
-    font: fontBold,
-    color: rgb(0, 0, 0),
-    maxWidth: 200,
-  });
-  page.drawText(`Job: ${doc.project.jobNum || "-"}   Date: ${doc.project.date || "-"}`, {
-    x: centerX,
-    y: y1 - 28,
-    size: 9,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
-  page.drawText(`Sticks: ${frame.sticks.length}`, {
-    x: centerX,
-    y: y1 - 40,
-    size: 9,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
+  // Quiet, doc-level marker (small, top-right) — used to be in the title
+  // block. Kept so prints carry the project name without crowding row 1.
+  void doc; // doc-level metadata is rendered in the footer (drawFooter).
 }
 
 function drawStick(
@@ -634,105 +715,99 @@ function drawStick(
   const corners = stick.outlineCorners!;
   const { s, ox, oy } = layout;
 
-  // Stick body — polygon from outline corners.
-  //
-  // BUG (2026-05-09): pdf-lib's `drawSvgPath` applies `scale(1, -1)` to
-  // flip the SVG Y axis (SVG = Y-down, PDF = Y-up). Without an explicit
-  // `y:` translate option that defaults to `0`, polygon coordinates land
-  // at NEGATIVE Y on the PDF page — i.e. off-page, completely invisible.
-  // Verified against HG260002 5 MOSSIP COURT WELLINGTON POINT-GF-LBW
-  // production XML (1431 sticks rendered to nowhere).
-  //
-  // Fix: emit raw PDF path operators directly. PDF native moveto/lineto
-  // operate in PDF coordinate space (Y-up, origin bottom-left), no flip.
+  // Stick body — hairline-only outline polygon. Detailer renders EVERY
+  // stick (plates, studs, nogs, headers, braces) as a width-0 black
+  // rectangle outline — NO fills anywhere on the elevation. Verified
+  // 2026-05-09 against HG260002-NLBW-DETAILER-REF.pdf: zero filled
+  // shapes on any of the 67 frame pages.
   const polyPts = corners.map(c => ({
     x: ox + c.x * s,
     y: oy + c.y * s,
   }));
+  drawFilledPolygon(page, polyPts, null, rgb(0, 0, 0), 0.3);
 
-  // Render style:
-  //   - Wall plan + VERTICAL/DIAGONAL stick (studs, jack/trim/end studs,
-  //     braces) → outline only, no fill, plus a C-section orientation
-  //     marker below the start end and a thicker stroke on the web edge.
-  //     The 41mm flange-edge thickness reads as a hairline at typical
-  //     page scale, matching Detailer's wall-elevation convention
-  //     (verified side-by-side against HG260002 GF-NLBW-89.075 frame
-  //     N37 reference PDF, 2026-05-09).
-  //   - Wall plan + HORIZONTAL stick (top/bottom plates, headers, sills,
-  //     nogs) → keep the filled rectangle look. Detailer also draws
-  //     these as visible filled members because the operator sees their
-  //     full flange edge across the wall face. They don't get a C-marker
-  //     (orientation is implied by their installation context).
-  //   - Truss/floor plans → keep filled rectangle. The 89mm web IS in the
-  //     elevation plane there, so the wider visual presence is correct.
-  const studOutlineOnly = wallStyle && isStudStyleStick(m);
-  drawFilledPolygon(
-    page,
-    polyPts,
-    studOutlineOnly ? null : rgb(0.85, 0.86, 0.88),  // light steel grey fill (omit for wall studs)
-    rgb(0.27, 0.27, 0.3),                             // darker grey outline
-    0.5
-  );
-
-  // Wall-stud orientation indicators — match Detailer's elevation convention:
-  //   1. Web edge (closed back of the C-section) drawn THICKER than the lip
-  //      edge. Operator can see at a glance which way the C is facing on
-  //      the assembled wall.
-  //   2. Small C-section symbol below the start end, opening toward the
-  //      LIPS (= away from the web).
+  // Asymmetric stick outline — Detailer's signature convention. Each
+  // C-section stick is drawn as 4 outer edges PLUS one interior
+  // longitudinal line offset ~0.4pt INSIDE one long edge, so visually
+  // ONE long edge is a "doubled line" and the OTHER is a single line.
+  // The doubled-line edge is the LIP side (open side of the C); the
+  // single-line edge is the WEB side (closed back of the C).
   //
-  // The two markers always agree: web side and lip side are opposite faces
-  // of the stick, so their directions are slaved to a single sign.
+  // Sign convention (rectangle CCW corner ordering from
+  // buildStickElevationGraphics):
+  //   edge 0→1 = +perp side (one long edge)
+  //   edge 2→3 = -perp side (the other long edge)
+  // perp = (-dirY, dirX) (90° CCW of stick direction).
   //
-  // Sign convention (verified against the rectangle CCW corner ordering
-  // produced by buildStickElevationGraphics in the codec):
-  //   corners[0] = start + perp × half     ←  +perp side
-  //   corners[1] = end   + perp × half     ←  +perp side
-  //   corners[2] = end   - perp × half     ←  -perp side
-  //   corners[3] = start - perp × half     ←  -perp side
-  // where perp = (-dirY, dirX) — i.e. 90° CCW of stick direction.
-  // For a vertical stud going up: +perp = LEFT (in elevation), -perp = RIGHT.
+  // Default: stick.flipped — false → lips on +perp, true → lips on -perp.
+  // Override: webOverrides Map keyed by stick.name; +1 = lips on +perp,
+  // -1 = lips on -perp. See computeWebOverrides for the structural
+  // detection rules (frame-end studs, opening jamb studs).
   //
-  // Default (interior studs): use FrameCAD's `flipped` attribute
-  //   flipped=false → lips on +perp (LEFT)  → web on -perp (RIGHT)
-  //   flipped=true  → lips on -perp (RIGHT) → web on +perp (LEFT)
-  //
-  // OVERRIDE (frame-end studs and opening jamb studs): force lipSign
-  // by structural position so the web faces inward regardless of what
-  // FrameCAD wrote in `<flipped>`. See computeWebOverrides.
-  if (studOutlineOnly) {
+  // Only applied to stud-style sticks in wall frames (verticals + diagonals).
+  // Plates/headers/nogs render as plain rectangle outlines — Detailer
+  // doesn't double-line their long edges either.
+  const studStyle = wallStyle && isStudStyleStick(m);
+  if (studStyle) {
     const fallback = stick.flipped ? -1 : +1;
     const lipSign: 1 | -1 = webOverrides.get(stick.name) ?? (fallback as 1 | -1);
-    // Web edge = the long edge OPPOSITE the lip side.
-    // lipSign=+1 → lips on +perp (edge 0-1) → web on -perp (edge 2-3)
-    // lipSign=-1 → lips on -perp (edge 2-3) → web on +perp (edge 0-1)
-    const webEdge = lipSign === +1
-      ? { a: polyPts[2]!, b: polyPts[3]! }
-      : { a: polyPts[0]!, b: polyPts[1]! };
+    // lipSign=+1 → lips on +perp (edge 0-1) → double THAT edge.
+    // lipSign=-1 → lips on -perp (edge 2-3) → double THAT edge.
+    const lipEdgeIdx: [number, number] = lipSign === +1 ? [0, 1] : [2, 3];
+    const dirX = Math.cos(m.angle);
+    const dirY = Math.sin(m.angle);
+    // Perp pointing toward the WEB (so we offset the interior line FROM
+    // the lip edge AWAY from the web — which is INWARD from the lip edge).
+    // Wait — the doubled line sits INSIDE the lip edge, i.e. BETWEEN the
+    // lip edge and the stick's centerline. So perp_inward points from
+    // the lip edge toward the centerline = from +perp toward -perp when
+    // lipSign=+1, i.e. perp_inward = -lipSign × perp.
+    const perpX = -dirY, perpY = dirX;            // +perp (90° CCW)
+    const inwardX = -lipSign * perpX;             // pointing from lip edge inward
+    const inwardY = -lipSign * perpY;
+    const OFFSET_PT = 0.8;                        // ~0.4pt either side of edge appears as paired line
+    const a0 = polyPts[lipEdgeIdx[0]]!;
+    const a1 = polyPts[lipEdgeIdx[1]]!;
     page.drawLine({
-      start: webEdge.a,
-      end: webEdge.b,
-      thickness: 2.4,                       // ~5× the regular outline (0.5pt) — visible at any frame scale
-      color: rgb(0, 0, 0),                  // pure black, more contrast vs the grey outline
+      start: { x: a0.x + inwardX * OFFSET_PT, y: a0.y + inwardY * OFFSET_PT },
+      end:   { x: a1.x + inwardX * OFFSET_PT, y: a1.y + inwardY * OFFSET_PT },
+      thickness: 0.3,
+      color: rgb(0, 0, 0),
     });
-    drawCSectionMarker(page, m, lipSign, layout);
   }
 
-  // Stick label at midpoint.
-  const labelMid = posAlongStick(m, m.length / 2);
-  const labelPt = { x: ox + labelMid.x * s, y: oy + labelMid.y * s };
-  const labelSize = 5;
-  // Rotate the label along the stick angle, but keep upright if vertical.
-  const angleDeg = (m.angle * 180) / Math.PI;
-  // Skip rotation: pdf-lib supports rotate via degrees(); but the label is
-  // small enough that horizontal-only is readable. Future TODO: rotate.
-  page.drawText(stick.name, {
-    x: labelPt.x - (stick.name.length * labelSize * 0.3),
-    y: labelPt.y - labelSize / 2,
-    size: labelSize,
-    font,
-    color: rgb(0.1, 0.1, 0.1),
-  });
+  // Stick label — rotated 90° CCW for vertical sticks (place inside the
+  // stud near the top end, ~7pt). For horizontal sticks, keep horizontal
+  // and place near the left end. Detailer's labels read top-to-bottom on
+  // verticals and left-to-right on horizontals.
+  const labelSize = 7;
+  const isVertical = Math.abs(Math.sin(m.angle)) > 0.5;
+  if (isVertical) {
+    // Place near the TOP end of the stud — m.start.y < m.end.y per the
+    // ascending-y normalisation in stickMidline, so "top" = m.end.
+    // Offset slightly INTO the stud from the top so the label sits on
+    // the steel rather than above it.
+    const labelPos = posAlongStick(m, Math.max(0, m.length - 60));
+    page.drawText(stick.name, {
+      x: ox + labelPos.x * s - labelSize * 0.4,
+      y: oy + labelPos.y * s,
+      size: labelSize,
+      font,
+      color: rgb(0, 0, 0),
+      rotate: degrees(90),
+    });
+  } else {
+    // Horizontal stick — place near the LEFT end (= m.start since
+    // stickMidline orders by ascending y then x).
+    const labelPos = posAlongStick(m, Math.min(m.length, 60));
+    page.drawText(stick.name, {
+      x: ox + labelPos.x * s,
+      y: oy + labelPos.y * s + 2,
+      size: labelSize,
+      font,
+      color: rgb(0, 0, 0),
+    });
+  }
 
   // Tooling marks.
   if (opts.showToolingMarks) {
@@ -782,15 +857,18 @@ function drawToolOp(
 }
 
 /**
- * Draw a tool-type-specific symbol at point pt.
+ * Draw a tool-type-specific symbol at point pt. ALL marks are pure black —
+ * shape variation is the differentiator (matches Detailer's monochrome
+ * elevation conventions, audit 2026-05-09).
  *
- * Symbol shapes (loosely match Detailer's conventions):
- *   InnerDimple, Bolt, Web, ScrewHoles → small filled circle
- *   Swage                              → small filled rectangle (rib)
- *   LipNotch + flange variants         → small triangle (V-cut)
- *   InnerNotch                         → square outline (web cutout)
- *   InnerService                       → oval (slot)
- *   Chamfer / TrussChamfer             → small ✕
+ * Symbol shapes:
+ *   InnerDimple, Bolt, Web → small filled circle
+ *   ScrewHoles             → concentric-circle (anchor symbol)
+ *   Swage                  → striped/hatched rectangle (rib pattern)
+ *   LipNotch + flange      → V-cut triangle (open at one edge)
+ *   InnerNotch             → square outline (web cutout)
+ *   InnerService           → ellipse (service slot)
+ *   Chamfer / TrussChamfer → ✕ cross
  */
 function drawMarker(
   page: PDFPage,
@@ -803,19 +881,38 @@ function drawMarker(
     case "InnerDimple":
     case "Bolt":
     case "Web":
-    case "ScrewHoles":
       page.drawCircle({ x: pt.x, y: pt.y, size: r, color, borderWidth: 0 });
       break;
-    case "Swage":
-      page.drawRectangle({
-        x: pt.x - r * 1.4,
-        y: pt.y - r * 0.5,
-        width: r * 2.8,
-        height: r,
-        color,
-        borderWidth: 0,
-      });
+    case "ScrewHoles": {
+      // Concentric circles — outer hairline ring + small filled centre.
+      page.drawCircle({ x: pt.x, y: pt.y, size: r * 1.4, color: undefined, borderColor: color, borderWidth: 0.4 });
+      page.drawCircle({ x: pt.x, y: pt.y, size: r * 0.4, color, borderWidth: 0 });
       break;
+    }
+    case "Swage": {
+      // Hatched rectangle — outline + 3 internal hairlines for the rib pattern.
+      const w = r * 2.8, h = r;
+      page.drawRectangle({
+        x: pt.x - w / 2,
+        y: pt.y - h / 2,
+        width: w,
+        height: h,
+        color: undefined,
+        borderColor: color,
+        borderWidth: 0.4,
+      });
+      const stripeCount = 3;
+      for (let i = 1; i <= stripeCount; i++) {
+        const sx = pt.x - w / 2 + (w * i) / (stripeCount + 1);
+        page.drawLine({
+          start: { x: sx, y: pt.y - h / 2 },
+          end: { x: sx, y: pt.y + h / 2 },
+          thickness: 0.3,
+          color,
+        });
+      }
+      break;
+    }
     case "LipNotch":
     case "LeftFlange":
     case "RightFlange":
@@ -882,169 +979,443 @@ function drawMarker(
 }
 
 /**
- * Render <line layer="0"> diagonals — strap braces + anchor marks pulled
- * from the source framecad_import XML. Drawn in elevation-mm coords (lines
- * have already been projected to the frame's local plane by HD1's
- * framecad-import).
+ * Render strap-brace diagonals + anchor marks pulled from <line layer="0">
+ * elements in the source XML. Detailer's convention (HG260002 NLBW page 9
+ * "Strap Brace - Near side"):
  *
- * Detailer's convention (visible on HG260002 NLBW page 9, frame N9):
- *   - Strap-brace diagonals form an X across the panel (typically 4 lines:
- *     2 long diagonals + 2 short anchor marks at each corner).
- *   - All drawn in solid black at hairline weight — NOT dashed, NOT coloured.
- *   - Overlay the sticks (drawn last so they appear on top of plate fills).
+ *   - Each strap is rendered as TWO parallel hairlines 50mm apart (the
+ *     real width of the steel strap), not a single centerline.
+ *   - Each end of each strap terminates in a hexagon-in-circle anchor
+ *     mark + an "F10" text label — the mechanical anchor + bolt size.
+ *   - All in solid black at hairline weight.
  *
- * We render them at 0.6pt black so they're visible without overpowering
- * the structural members.
+ * The XML's <line layer="0"> elements arrive as the strap centerlines.
+ * We thicken to paired-line strap by offsetting ±25mm perpendicular to
+ * the strap direction.
  */
-function drawDiagonalLines(
+function drawStrapBrace(
   page: PDFPage,
   lines: { start: { x: number; y: number }; end: { x: number; y: number } }[],
   layout: PageLayout,
+  font: any,
 ): void {
   const { s, ox, oy } = layout;
+  const STRAP_HALF_MM = 25; // 50mm strap → ±25mm offset
+  const ANCHOR_R_PT = 3;    // anchor circle radius
+
+  // Render each input line as a pair of parallel hairlines, offset
+  // perpendicular to the line direction by ±STRAP_HALF_MM.
   for (const ln of lines) {
-    page.drawLine({
-      start: { x: ox + ln.start.x * s, y: oy + ln.start.y * s },
-      end: { x: ox + ln.end.x * s, y: oy + ln.end.y * s },
-      thickness: 0.6,
-      color: rgb(0, 0, 0),
+    const dx = ln.end.x - ln.start.x;
+    const dy = ln.end.y - ln.start.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) {
+      // Degenerate — render as single hairline (probably an anchor stub).
+      page.drawLine({
+        start: { x: ox + ln.start.x * s, y: oy + ln.start.y * s },
+        end: { x: ox + ln.end.x * s, y: oy + ln.end.y * s },
+        thickness: 0.4,
+        color: rgb(0, 0, 0),
+      });
+      continue;
+    }
+    // For very short construction lines (<300mm — anchor stubs), keep them
+    // as single hairlines. Only thicken the long diagonals into paired lines.
+    if (len < 300) {
+      page.drawLine({
+        start: { x: ox + ln.start.x * s, y: oy + ln.start.y * s },
+        end: { x: ox + ln.end.x * s, y: oy + ln.end.y * s },
+        thickness: 0.4,
+        color: rgb(0, 0, 0),
+      });
+      continue;
+    }
+    const ux = dx / len, uy = dy / len;
+    const px = -uy, py = ux; // perpendicular (90° CCW)
+    for (const sign of [+1, -1]) {
+      const a = { x: ln.start.x + px * sign * STRAP_HALF_MM, y: ln.start.y + py * sign * STRAP_HALF_MM };
+      const b = { x: ln.end.x + px * sign * STRAP_HALF_MM, y: ln.end.y + py * sign * STRAP_HALF_MM };
+      page.drawLine({
+        start: { x: ox + a.x * s, y: oy + a.y * s },
+        end: { x: ox + b.x * s, y: oy + b.y * s },
+        thickness: 0.4,
+        color: rgb(0, 0, 0),
+      });
+    }
+    // Anchor marks at each end — hexagon-in-circle + "F10" label.
+    drawAnchorMark(page, { x: ox + ln.start.x * s, y: oy + ln.start.y * s }, ANCHOR_R_PT, font);
+    drawAnchorMark(page, { x: ox + ln.end.x * s,   y: oy + ln.end.y * s   }, ANCHOR_R_PT, font);
+  }
+}
+
+/**
+ * Draw a hexagon-in-circle anchor mark with an "F10" label nearby.
+ * Used at each end of a strap brace to mark the mechanical anchor.
+ */
+function drawAnchorMark(page: PDFPage, pt: { x: number; y: number }, r: number, font: any): void {
+  // Outer circle (hairline).
+  page.drawCircle({ x: pt.x, y: pt.y, size: r, color: undefined, borderColor: rgb(0, 0, 0), borderWidth: 0.4 });
+  // Inscribed hexagon (6-segment polyline).
+  const verts: { x: number; y: number }[] = [];
+  for (let i = 0; i < 6; i++) {
+    const ang = (i * Math.PI) / 3;
+    verts.push({ x: pt.x + (r * 0.85) * Math.cos(ang), y: pt.y + (r * 0.85) * Math.sin(ang) });
+  }
+  for (let i = 0; i < verts.length; i++) {
+    const a = verts[i]!;
+    const b = verts[(i + 1) % verts.length]!;
+    page.drawLine({ start: a, end: b, thickness: 0.4, color: rgb(0, 0, 0) });
+  }
+  // F10 label — small, offset to the right of the anchor.
+  page.drawText("F10", { x: pt.x + r + 1, y: pt.y - 2, size: 5, font, color: rgb(0, 0, 0) });
+}
+
+/**
+ * Render fastener marks. SKU 001792 (M6 self-driller, count typically 2)
+ * → small open circle. Heavy fasteners (count >= 10, e.g. SKU 001539
+ * shear bolts) → larger outline circle. All hairline weight, black.
+ */
+function drawFasteners(
+  page: PDFPage,
+  fasteners: { pos: { x: number; y: number }; name: string; count: number }[],
+  layout: PageLayout,
+): void {
+  const { s, ox, oy } = layout;
+  for (const f of fasteners) {
+    const px = ox + f.pos.x * s;
+    const py = oy + f.pos.y * s;
+    const heavy = f.count >= 10;
+    const r = heavy ? 3 : 1.5;
+    page.drawCircle({
+      x: px, y: py, size: r,
+      color: undefined,
+      borderColor: rgb(0, 0, 0),
+      borderWidth: 0.4,
     });
   }
 }
 
-function drawOverallDimensions(
+/**
+ * Render <label> text callouts. Each carries text + size (mm) + angle (deg).
+ * The XML's `size` attribute is in mm — multiply by 0.5 for a reasonable
+ * pt size on A3. pdf-lib's `rotate: degrees(...)` rotates around the
+ * text's origin, which is the bottom-left of the glyphs.
+ */
+function drawCallouts(
   page: PDFPage,
-  bb: BBox,
+  labels: { pos: { x: number; y: number }; text: string; size: number; angle: number }[],
   layout: PageLayout,
-  font: any
+  font: any,
 ): void {
   const { s, ox, oy } = layout;
-  const widthMm = bb.maxX - bb.minX;
-  const heightMm = bb.maxY - bb.minY;
+  for (const lb of labels) {
+    const px = ox + lb.pos.x * s;
+    const py = oy + lb.pos.y * s;
+    // size attr is in mm — scale to pt and clamp to a readable range.
+    const sizePt = Math.max(6, Math.min(14, lb.size * 0.5));
+    page.drawText(lb.text, {
+      x: px,
+      y: py,
+      size: sizePt,
+      font,
+      color: rgb(0, 0, 0),
+      rotate: degrees(lb.angle),
+    });
+  }
+}
 
-  // Width dim — horizontal line below frame.
-  const yLine = oy + bb.minY * s - 14;
+/**
+ * Per-stud bottom dim chain + per-feature right dim chain.
+ *
+ * BOTTOM CHAIN: walk every vertical stud, collect distinct cross-X
+ * positions (rounded to 1mm), draw a tick + rotated-90° label at each.
+ * Always include 0 at the origin. Format: integer mm, no "mm" suffix.
+ *
+ * RIGHT CHAIN: same idea on the Y axis — collect distinct horizontal-stick
+ * Y positions (top/bottom plates, headers, sills, nogs).
+ */
+function drawDimChains(
+  page: PDFPage,
+  frame: RfyFrame,
+  bb: BBox,
+  layout: PageLayout,
+  font: any,
+): void {
+  const { s, ox, oy } = layout;
+
+  // Walk every stick midline once, classify by orientation.
+  const verticalCrossX = new Set<number>([0]);
+  const horizontalCrossY = new Set<number>([0]);
+  for (const stick of frame.sticks) {
+    const m = stickMidline(stick);
+    if (!m) continue;
+    if (Math.abs(Math.sin(m.angle)) > 0.5) {
+      // Vertical-ish stick — its cross-X (relative to frame origin) is
+      // rounded to 1mm so e.g. two studs at x=600.0 and x=600.4 collapse.
+      const cx = (m.start.x + m.end.x) / 2 - bb.minX;
+      verticalCrossX.add(Math.round(cx));
+    } else {
+      // Horizontal-ish stick — its cross-Y.
+      const cy = (m.start.y + m.end.y) / 2 - bb.minY;
+      horizontalCrossY.add(Math.round(cy));
+    }
+  }
+
+  // Bottom dim chain — line + ticks + rotated labels.
+  const yBaseline = oy + bb.minY * s - 12;
   const xL = ox + bb.minX * s;
   const xR = ox + bb.maxX * s;
   page.drawLine({
-    start: { x: xL, y: yLine },
-    end: { x: xR, y: yLine },
-    thickness: 0.5,
-    color: rgb(0.3, 0.3, 0.3),
+    start: { x: xL, y: yBaseline },
+    end: { x: xR, y: yBaseline },
+    thickness: 0.3,
+    color: rgb(0, 0, 0),
   });
-  // End ticks.
-  page.drawLine({ start: { x: xL, y: yLine - 3 }, end: { x: xL, y: yLine + 3 }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  page.drawLine({ start: { x: xR, y: yLine - 3 }, end: { x: xR, y: yLine + 3 }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  // Label.
-  const label = `${widthMm.toFixed(0)} mm`;
-  page.drawText(label, {
-    x: (xL + xR) / 2 - label.length * 2.5,
-    y: yLine - 10,
-    size: 8,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
+  const sortedX = [...verticalCrossX, bb.maxX - bb.minX].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+  for (const xMm of sortedX) {
+    const xPt = ox + (bb.minX + xMm) * s;
+    page.drawLine({
+      start: { x: xPt, y: yBaseline - 3 },
+      end: { x: xPt, y: yBaseline + 3 },
+      thickness: 0.3,
+      color: rgb(0, 0, 0),
+    });
+    // Rotated 90° label below the tick. pdf-lib rotates around the text
+    // origin (bottom-left of glyph), so for a CCW-90 rotation we offset
+    // the y to land below the tick.
+    page.drawText(String(Math.round(xMm)), {
+      x: xPt + 2,
+      y: yBaseline - 5,
+      size: 6,
+      font,
+      color: rgb(0, 0, 0),
+      rotate: degrees(90),
+    });
+  }
 
-  // Height dim — vertical line right of frame.
-  const xLine = ox + bb.maxX * s + 14;
+  // Right dim chain — vertical line on the right with ticks + horizontal labels.
+  const xLine = ox + bb.maxX * s + 12;
   const yB = oy + bb.minY * s;
   const yT = oy + bb.maxY * s;
   page.drawLine({
     start: { x: xLine, y: yB },
     end: { x: xLine, y: yT },
-    thickness: 0.5,
-    color: rgb(0.3, 0.3, 0.3),
+    thickness: 0.3,
+    color: rgb(0, 0, 0),
   });
-  page.drawLine({ start: { x: xLine - 3, y: yB }, end: { x: xLine + 3, y: yB }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  page.drawLine({ start: { x: xLine - 3, y: yT }, end: { x: xLine + 3, y: yT }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  const hLabel = `${heightMm.toFixed(0)} mm`;
-  page.drawText(hLabel, {
-    x: xLine + 5,
-    y: (yB + yT) / 2 - 4,
+  const sortedY = [...horizontalCrossY, bb.maxY - bb.minY].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+  for (const yMm of sortedY) {
+    const yPt = oy + (bb.minY + yMm) * s;
+    page.drawLine({
+      start: { x: xLine - 3, y: yPt },
+      end: { x: xLine + 3, y: yPt },
+      thickness: 0.3,
+      color: rgb(0, 0, 0),
+    });
+    page.drawText(String(Math.round(yMm)), {
+      x: xLine + 5,
+      y: yPt - 2,
+      size: 6,
+      font,
+      color: rgb(0, 0, 0),
+    });
+  }
+}
+
+/**
+ * 3-row footer drawn in the bottom strip of the page.
+ *
+ * Row 1 (centred): `<<< Joins ?     Quantity Required = 1   Mark as <name>   Stud Status = Passed   Joins ? >>>`
+ *                  Header Status only present when frame has a HeadPlate stick.
+ * Row 2 (specs grid): System Name | Wall Type | Wind Speed | Design Code | Loading Code | MGR | Panel RL | Envelope | Direction
+ * Row 3 (left/right blocks): HYTEK Framing | Dwg | View N of M | Client | J/No.
+ */
+function drawFooter(
+  page: PDFPage,
+  doc: RfyDocument,
+  planName: string,
+  frame: RfyFrame,
+  font: any,
+  fontBold: any,
+  opts: Required<PdfOptions>,
+  pageNum: number,
+  totalPages: number,
+  W: number,
+): void {
+  const x0 = MARGIN_PT;
+  const x1 = W - MARGIN_PT;
+  const y0 = MARGIN_PT;
+  const y1 = y0 + FOOTER_HEIGHT_PT;
+
+  // Outline.
+  page.drawRectangle({
+    x: x0, y: y0, width: x1 - x0, height: FOOTER_HEIGHT_PT,
+    borderColor: rgb(0, 0, 0), borderWidth: 0.4, color: undefined,
+  });
+
+  // ─ Row 1: Joins/Quantity/Mark/Status ───────────────────────────────────
+  const row1Y = y1 - 12;
+  // Header status only if frame has a HeadPlate stick (codec usage="HeadPlate"
+  // → stick.usage === "HeadPlate").
+  const hasHeadPlate = frame.sticks.some(st => /headplate|head/i.test(st.usage ?? ""));
+  const row1Parts = [
+    "<<< Joins ?",
+    "Quantity Required = 1",
+    `Mark as ${frame.name}`,
+    "Stud Status = Passed",
+  ];
+  if (hasHeadPlate) row1Parts.push("Header Status = Passed");
+  row1Parts.push("Joins ? >>>");
+  const row1Text = row1Parts.join("     ");
+  page.drawText(row1Text, {
+    x: x0 + (x1 - x0) / 2 - row1Text.length * 2.4,
+    y: row1Y,
     size: 8,
     font,
-    color: rgb(0.2, 0.2, 0.2),
+    color: rgb(0, 0, 0),
   });
+
+  // ─ Row 2: Specs grid ───────────────────────────────────────────────────
+  const row2Y = y1 - 26;
+  const elevationMm = opts.frameElevations.get(frame.name) ?? 0;
+  const wMm = frame.length ?? 0;
+  const hMm = frame.height ?? 0;
+  const specs = [
+    `System Name: FC_Textor_Qld`,
+    `Wall Type: Non Load Bearing`,
+    `Wind Speed: 45`,
+    `Design Code: AS/NZS 4600:2018`,
+    `Loading Code: AS/NZS 1170:2021`,
+    `Material Grade Reduction: Not Applied`,
+    `Panel RL: ${Math.round(elevationMm)}`,
+    `Envelope: ${Math.round(hMm)}h x ${Math.round(wMm)}w`,
+    `Direction: E-W`,
+  ];
+  page.drawText(specs.join("   |   "), {
+    x: x0 + 6, y: row2Y, size: 6.5, font, color: rgb(0, 0, 0),
+  });
+
+  // ─ Row 3: HYTEK Framing | Dwg | View N of M | Client | J/No. ───────────
+  const row3Y = y1 - 42;
+  const dwgName = `${doc.project.name}_${doc.project.date || ""}A`;
+  const row3Left = `HYTEK Framing   |   Dwg: ${truncate(dwgName, 60)}   |   View ${pageNum} of ${totalPages}   |   Client: ${doc.project.client || "-"}   |   J/No. ${doc.project.jobNum || "-"}`;
+  page.drawText(row3Left, {
+    x: x0 + 6, y: row3Y, size: 7, font: fontBold, color: rgb(0, 0, 0),
+  });
+  void planName;
 }
 
 // ---------- Utilities ----------
 
 /**
- * Draw a small C-section orientation marker outside one end of a stud's
- * midline. Matches Detailer's elevation convention: a bracket-shape
- * symbol that tells the operator which way the open side of the
- * C-channel faces (lip direction).
+ * Draw C-section U-bracket markers under the bottom plate at every
+ * (stud × bottom-plate) junction. Detailer's convention (verified vs
+ * HG260002-NLBW-DETAILER-REF.pdf, audit 2026-05-09): NOT one bracket per
+ * stud individually — the bracket sits ON the bottom plate at each
+ * junction X position, opening UPWARD toward the stud above it. The
+ * open side points toward the lips (the C-section convention).
  *
- * Geometry (3-segment polyline forming a bracket):
- *   - Web on one side (vertical line, closed back of the C)
- *   - Two flanges extending toward the lips (top + bottom horizontal lines)
- *   - Open side (no line) = where the lips face
+ * Geometry: a U-bracket = 3 line segments (left flange + base + right
+ * flange) drawn as a closed-bottom bracket whose width matches the stud
+ * width and height ~7pt. Width is taken from the stud's outline (short
+ * edge length); height is fixed in pt for visual consistency.
  *
- * `lipSign` parameter: +1 if lips face +perp (90° CCW of stick direction),
- * -1 if lips face -perp. Caller derives this from `stick.flipped` and
- * passes the SAME sign used to pick the thicker web edge on the stick
- * outline — guaranteeing the two indicators always agree.
- *
- * Placed at the stick's start end, offset OUTSIDE the stick by OFFSET_PT
- * so it sits clear of the outline and doesn't overlap tooling marks. Size
- * is fixed in PDF points so the marker reads at any page scale.
+ * Lip sign per stud is fed from webOverrides + stick.flipped (same
+ * signal as the asymmetric outline's doubled-line side, so the two
+ * indicators always agree).
  */
-function drawCSectionMarker(
+function drawCJunctionMarkers(
   page: PDFPage,
-  m: Midline,
-  lipSign: 1 | -1,
+  frame: RfyFrame,
+  bb: BBox,
   layout: PageLayout,
+  webOverrides: Map<string, 1 | -1>,
 ): void {
   const { s, ox, oy } = layout;
 
-  // Marker size in PDF points — fixed visual size regardless of frame scale.
-  // Sized so the marker is legible on big frames (3m+ walls) without
-  // dominating small ones. ~doubled from the original 7pt — Scott's
-  // feedback 2026-05-09: at A3 auto-fit on a 3290mm-wide frame the
-  // earlier 7pt marker was near-invisible.
-  const SIZE = 14;            // overall bracket height (web length, in stick-local "along" axis)
-  const FLANGE = SIZE * 0.6;  // flange-arm length (lips direction)
-  const OFFSET_PT = 18;       // gap between stick start and marker centre
+  // Find the bottom plate(s) — horizontal sticks whose Y is at or near
+  // the frame's bbox.minY (= bottom of the frame). Detailer typically has
+  // one B1 + maybe a raised B2 (above-door sill).
+  type SM = { stick: RfyStick; m: Midline };
+  const sticks: SM[] = [];
+  for (const stick of frame.sticks) {
+    const m = stickMidline(stick);
+    if (!m) continue;
+    sticks.push({ stick, m });
+  }
+  const horizontals = sticks.filter(sm => Math.abs(Math.sin(sm.m.angle)) <= 0.5);
+  const verticals   = sticks.filter(sm => Math.abs(Math.sin(sm.m.angle)) >  0.5);
+  if (verticals.length === 0 || horizontals.length === 0) return;
 
-  // Direction along the stick (start → end) and its perpendicular.
-  const dirX = Math.cos(m.angle);
-  const dirY = Math.sin(m.angle);
+  // Find the lowest horizontal stick(s) — Y within 50mm of bbox.minY.
+  const PLATE_TOL_MM = 50;
+  const bottomPlates = horizontals.filter(sm => {
+    const cy = (sm.m.start.y + sm.m.end.y) / 2;
+    return cy <= bb.minY + PLATE_TOL_MM;
+  });
+  if (bottomPlates.length === 0) return;
 
-  // Place marker centre OUTSIDE the start end (one OFFSET_PT step opposite
-  // the stick's forward direction). For a vertical stud this puts the
-  // marker BELOW the bottom of the stud.
-  const cx = ox + m.start.x * s - dirX * OFFSET_PT;
-  const cy = oy + m.start.y * s - dirY * OFFSET_PT;
+  // Bracket size in pt — fixed visual size, doesn't scale with frame.
+  const BRACKET_HEIGHT_PT = 7;
 
-  // Bracket points in stick-LOCAL coords (lx = along stick, ly = across):
-  //   top-flange-tip = (+halfWeb, lipSign*FLANGE)
-  //   web-top        = (+halfWeb, 0)
-  //   web-bot        = (-halfWeb, 0)
-  //   bot-flange-tip = (-halfWeb, lipSign*FLANGE)
-  // Polyline goes top-flange-tip → web-top → web-bot → bot-flange-tip,
-  // which is the 3 strokes (top flange, web, bottom flange) of the bracket.
-  // The "open" side faces +lipSign × perp = the lip direction. ✓
-  const halfWeb = SIZE / 2;
-  const pts = [
-    { lx: +halfWeb, ly: lipSign * FLANGE },
-    { lx: +halfWeb, ly: 0 },
-    { lx: -halfWeb, ly: 0 },
-    { lx: -halfWeb, ly: lipSign * FLANGE },
-  ].map(({ lx, ly }) => ({
-    // Rotate (lx, ly) into PDF coords using stick angle, then translate
-    // to (cx, cy). local-x maps along (dirX, dirY); local-y maps along
-    // (-dirY, dirX) (90° CCW perpendicular = +perp).
-    x: cx + lx * dirX + ly * (-dirY),
-    y: cy + lx * dirY + ly * dirX,
-  }));
+  // For each vertical stud, find which bottom plate it intersects (X
+  // coincides with the plate's span) and emit a U-bracket on that plate.
+  const JUNCTION_TOL_MM = 30;
+  for (const v of verticals) {
+    const studCenterX = (v.m.start.x + v.m.end.x) / 2;
+    // Stud width (short side of the rectangle) — use thickness from midline.
+    const studWidthMm = v.m.thickness;
 
-  for (let i = 0; i < pts.length - 1; i++) {
-    page.drawLine({
-      start: pts[i]!,
-      end: pts[i + 1]!,
-      thickness: 1.4,                       // ~doubled from 0.7pt — Scott reported markers near-invisible at 7pt × 0.7pt stroke on 3m+ frames
-      color: rgb(0, 0, 0),                  // pure black for contrast vs the grey stick outlines
-    });
+    // Find a bottom plate whose X-span contains studCenterX.
+    let plate: SM | null = null;
+    for (const bp of bottomPlates) {
+      const xMin = Math.min(bp.m.start.x, bp.m.end.x) - JUNCTION_TOL_MM;
+      const xMax = Math.max(bp.m.start.x, bp.m.end.x) + JUNCTION_TOL_MM;
+      if (studCenterX >= xMin && studCenterX <= xMax) { plate = bp; break; }
+    }
+    if (!plate) continue;
+
+    // Plate top-Y = plate.center.y + halfPlateThickness. We want the
+    // bracket sitting JUST ABOVE the plate's top face (= just under the
+    // stud's bottom face). Plate's outline corners give us its bbox in
+    // mm; pick max Y of those.
+    const plateCorners = plate.stick.outlineCorners;
+    if (!plateCorners) continue;
+    const plateMaxY = Math.max(...plateCorners.map(c => c.y));
+
+    // Lip sign for this stud — same convention as drawStick.
+    const lipSign: 1 | -1 = webOverrides.get(v.stick.name) ?? ((v.stick.flipped ? -1 : +1) as 1 | -1);
+
+    // Bracket geometry in PDF pt:
+    //   - Sit ON TOP of plate (y = plateMaxY in mm, converted to pt).
+    //   - Width matches the stud's elevation width.
+    //   - Height = BRACKET_HEIGHT_PT.
+    //   - Open side faces UPWARD (toward the stud) — lip sign rotates
+    //     left vs right "leg lengths" so the open lip is on the lipSign side.
+    const cxPt = ox + studCenterX * s;
+    const cyPt = oy + plateMaxY * s;
+    const halfWidthPt = (studWidthMm * s) / 2;
+
+    // U-bracket = 3 segments: left flange UP, base, right flange UP.
+    // The "leg" on the lipSign side is FULL height; the leg on the web
+    // side is also full height (a closed U), but we knock 1pt off the
+    // web-side top so the asymmetry indicates the lip direction. This
+    // mirrors Detailer's marker which shows the open notch on the lip
+    // side as a clear gap.
+    const baseY = cyPt;
+    const lipLegTop = baseY + BRACKET_HEIGHT_PT;
+    const webLegTop = baseY + BRACKET_HEIGHT_PT * 0.8; // shorter on web side
+    const leftX = cxPt - halfWidthPt;
+    const rightX = cxPt + halfWidthPt;
+    // lipSign=+1 means lips on +perp (LEFT for vertical going up). So the
+    // LEFT leg = lip side = full height; RIGHT leg = web side = shorter.
+    // lipSign=-1 → swap.
+    const leftTop = lipSign === +1 ? lipLegTop : webLegTop;
+    const rightTop = lipSign === +1 ? webLegTop : lipLegTop;
+
+    page.drawLine({ start: { x: leftX,  y: baseY }, end: { x: leftX,  y: leftTop  }, thickness: 0.4, color: rgb(0, 0, 0) });
+    page.drawLine({ start: { x: leftX,  y: baseY }, end: { x: rightX, y: baseY    }, thickness: 0.4, color: rgb(0, 0, 0) });
+    page.drawLine({ start: { x: rightX, y: baseY }, end: { x: rightX, y: rightTop }, thickness: 0.4, color: rgb(0, 0, 0) });
   }
 }
 
