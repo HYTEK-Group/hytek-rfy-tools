@@ -7,23 +7,12 @@
 // lib/encode-bundle.ts.
 
 import { decodeXml } from "@hytek/rfy-codec";
-import type { RfyToolingOp } from "@hytek/rfy-codec";
 import { framecadImportToRfy } from "../framecad-import";
 import { loadCatalogues } from "./loader";
-import type { ClassificationReport, ClassifiedOp } from "./types";
+import type { ClassificationReport } from "./types";
 
 export interface BrainOutput {
   report: ClassificationReport;
-}
-
-/** Extract a representative position from a tooling op. Point ops carry
- *  `pos`, spanned ops carry `startPos` (the start of the span), and edge
- *  ops have no position — they fire at the stick's start/end edge, so we
- *  report 0 to keep the field numeric. */
-function positionOf(op: RfyToolingOp): number {
-  if (op.kind === "point") return op.pos;
-  if (op.kind === "spanned") return op.startPos;
-  return 0;
 }
 
 export function brainEncode(xml: string): BrainOutput {
@@ -40,39 +29,31 @@ export function brainEncode(xml: string): BrainOutput {
   // emitted on every stick of every plan.
   const doc = decodeXml(result.xml);
 
-  const classifiedOps: ClassifiedOp[] = [];
+  let totalOps = 0;
+  let uncatalogued = 0;
+  const uncataloguedNamesSet = new Set<string>();
   const perPlanMap = new Map<string, { totalOps: number; uncatalogued: number }>();
 
   for (const plan of doc.project.plans) {
-    perPlanMap.set(plan.name, { totalOps: 0, uncatalogued: 0 });
+    const tally = { totalOps: 0, uncatalogued: 0 };
+    perPlanMap.set(plan.name, tally);
     for (const frame of plan.frames) {
       for (const stick of frame.sticks) {
-        for (const op of stick.tooling ?? []) {
-          const classification: ClassifiedOp["classification"] =
-            knownOpNames.has(op.type) ? "catalogued" : "uncatalogued";
-          classifiedOps.push({
-            name: op.type,
-            stickName: stick.name,
-            planName: plan.name,
-            position: positionOf(op),
-            classification,
-          });
-          const tally = perPlanMap.get(plan.name)!;
+        for (const op of stick.tooling) {
+          totalOps += 1;
           tally.totalOps += 1;
-          if (classification === "uncatalogued") tally.uncatalogued += 1;
+          if (!knownOpNames.has(op.type)) {
+            uncatalogued += 1;
+            tally.uncatalogued += 1;
+            uncataloguedNamesSet.add(op.type);
+          }
         }
       }
     }
   }
 
-  const totalOps = classifiedOps.length;
-  const catalogued = classifiedOps.filter(c => c.classification === "catalogued").length;
-  const uncatalogued = totalOps - catalogued;
-  const uncataloguedNames = Array.from(
-    new Set(
-      classifiedOps.filter(c => c.classification === "uncatalogued").map(c => c.name)
-    )
-  ).sort();
+  const catalogued = totalOps - uncatalogued;
+  const uncataloguedNames = Array.from(uncataloguedNamesSet).sort();
 
   const report: ClassificationReport = {
     totalOps,
