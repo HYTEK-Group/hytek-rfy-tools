@@ -182,28 +182,52 @@ function pageDims(size: PdfPageSize): [number, number] {
 }
 
 // ---------- Tool color palette ----------
-// Detailer renders ALL tooling marks in pure black, with shape variation
-// telling the operator which op is which. The previous bright-RGB palette
-// (mirror of app/viewer/lib/tool-colors.ts) was Agent 2's invention for
-// the on-screen viewer — Detailer's printed PDFs are monochrome.
-// Kept as a typed Record so drawToolOp's lookup is still O(1) and the
-// shape-by-type switch in drawMarker is unchanged.
+// Bright RGB palette so the operator can identify each tool at a glance
+// from the printed PDF. Mirrors `app/viewer/lib/tool-colors.ts` so the
+// 3D viewer + the print PDF show the same colour for the same op.
+// Restored 2026-05-09 (Scott) after the Detailer-spec rebuild had
+// flattened everything to black — the operator workflow needs colour to
+// pair the marker on the stick with the legend at the bottom of the page.
+// The companion `drawToolingLegend()` builds a per-frame key showing the
+// shape + colour + name of every tool used on that frame.
 
 const TOOL_COLOR: Record<ToolType, RGB> = {
-  LipNotch: rgb(0, 0, 0),
-  LeftFlange: rgb(0, 0, 0),
-  RightFlange: rgb(0, 0, 0),
-  LeftPartialFlange: rgb(0, 0, 0),
-  RightPartialFlange: rgb(0, 0, 0),
-  InnerDimple: rgb(0, 0, 0),
-  Swage: rgb(0, 0, 0),
-  InnerNotch: rgb(0, 0, 0),
-  Web: rgb(0, 0, 0),
-  Bolt: rgb(0, 0, 0),
-  ScrewHoles: rgb(0, 0, 0),
-  InnerService: rgb(0, 0, 0),
-  Chamfer: rgb(0, 0, 0),
-  TrussChamfer: rgb(0, 0, 0),
+  LipNotch: rgb(0.94, 0.27, 0.27),         // #ef4444 red
+  LeftFlange: rgb(0.98, 0.45, 0.09),        // #f97316 orange
+  RightFlange: rgb(0.93, 0.28, 0.6),        // #ec4899 pink
+  LeftPartialFlange: rgb(0.98, 0.44, 0.52), // #fb7185 rose
+  RightPartialFlange: rgb(0.99, 0.64, 0.69),// #fda4af light rose
+  InnerDimple: rgb(0.98, 0.8, 0.08),        // #facc15 yellow (HYTEK adjacent)
+  Swage: rgb(0.96, 0.62, 0.04),             // #f59e0b amber
+  InnerNotch: rgb(0.66, 0.33, 0.97),        // #a855f7 purple
+  Web: rgb(0.02, 0.71, 0.83),               // #06b6d4 cyan
+  Bolt: rgb(0.23, 0.51, 0.96),              // #3b82f6 blue
+  ScrewHoles: rgb(0.13, 0.77, 0.37),        // #22c55e green
+  InnerService: rgb(0.08, 0.72, 0.65),      // #14b8a6 teal
+  Chamfer: rgb(0.52, 0.8, 0.09),            // #84cc16 lime
+  TrussChamfer: rgb(0.52, 0.8, 0.09),       // same — same physical op
+};
+
+/**
+ * Human-readable label for each ToolType — used by the per-frame legend
+ * at the bottom-right of each page. Keep these short so the legend box
+ * doesn't blow out at small page scales.
+ */
+const TOOL_LABEL: Record<ToolType, string> = {
+  LipNotch: "Lip Notch",
+  LeftFlange: "Left Flange",
+  RightFlange: "Right Flange",
+  LeftPartialFlange: "L Partial Flange",
+  RightPartialFlange: "R Partial Flange",
+  InnerDimple: "Inner Dimple",
+  Swage: "Swage",
+  InnerNotch: "Inner Notch",
+  Web: "Web Notch",
+  Bolt: "Bolt Hole",
+  ScrewHoles: "Screw / Anchor",
+  InnerService: "Service Hole",
+  Chamfer: "Chamfer",
+  TrussChamfer: "Truss Chamfer",
 };
 
 // ---------- Geometry helpers (mirror app/viewer/lib/geometry.ts) ----------
@@ -535,14 +559,10 @@ function drawFramePage(
     drawStick(page, stick, layout, font, opts, wallStyle, webOverrides);
   }
 
-  // C-section junction markers — Detailer draws a small U-bracket UNDER
-  // the bottom plate at each (stud × bottom-plate) junction, opening
-  // upward toward the stud. NOT one per stud individually — the bracket
-  // sits on the plate at the junction X, indicating the C's lip
-  // direction. Width = stud width, height ~7pt.
-  if (wallStyle) {
-    drawCJunctionMarkers(page, frame, bb, layout, webOverrides);
-  }
+  // C-section orientation: now drawn PER-STUD inside drawStick (a small
+  // bracket below the bottom of each stud). The previous "under-plate
+  // junction" marker has been dropped (Scott, 2026-05-09 — one indicator
+  // per stud is what the operator actually wants).
 
   // Diagonal lines from source XML (<line layer="0">) — strap braces +
   // anchor marks. Drawn after sticks so they overlay (Detailer's
@@ -583,6 +603,14 @@ function drawFramePage(
   // Per-stud bottom dim chain + per-feature right dim chain.
   if (opts.showDimensions) {
     drawDimChains(page, frame, bb, layout, font);
+  }
+
+  // Tooling legend — small key at the bottom-right showing the symbol +
+  // colour + name of every tool type used on this frame's sticks. Lets
+  // the operator decode any coloured marker on the drawing without
+  // memorising the palette.
+  if (opts.showToolingMarks) {
+    drawToolingLegend(page, frame, layout, font, W);
   }
 
   // 3-row footer: Joins/Quantity/Status, Specs grid, Dwg/Client/Job.
@@ -751,29 +779,39 @@ function drawStick(
   if (studStyle) {
     const fallback = stick.flipped ? -1 : +1;
     const lipSign: 1 | -1 = webOverrides.get(stick.name) ?? (fallback as 1 | -1);
-    // lipSign=+1 → lips on +perp (edge 0-1) → double THAT edge.
-    // lipSign=-1 → lips on -perp (edge 2-3) → double THAT edge.
-    const lipEdgeIdx: [number, number] = lipSign === +1 ? [0, 1] : [2, 3];
+
+    // ASYMMETRIC OUTLINE — orientation rule (Scott, 2026-05-09):
+    //   "above the lighter line is the open part of the C"
+    // → the LIGHTER (single) edge of the rectangle is on the LIP / OPEN
+    //   side of the C-section.
+    // → the HEAVIER (doubled, with interior offset line) edge is on the
+    //   WEB side (the closed back of the C).
+    //
+    // lipSign=+1 → lips on +perp (edge 0-1)  → web on -perp (edge 2-3)  → DOUBLE 2-3
+    // lipSign=-1 → lips on -perp (edge 2-3)  → web on +perp (edge 0-1)  → DOUBLE 0-1
+    const webEdgeIdx: [number, number] = lipSign === +1 ? [2, 3] : [0, 1];
     const dirX = Math.cos(m.angle);
     const dirY = Math.sin(m.angle);
-    // Perp pointing toward the WEB (so we offset the interior line FROM
-    // the lip edge AWAY from the web — which is INWARD from the lip edge).
-    // Wait — the doubled line sits INSIDE the lip edge, i.e. BETWEEN the
-    // lip edge and the stick's centerline. So perp_inward points from
-    // the lip edge toward the centerline = from +perp toward -perp when
-    // lipSign=+1, i.e. perp_inward = -lipSign × perp.
+    // Doubled line sits INSIDE the web edge (between web edge and the
+    // stick's centerline). For lipSign=+1, web edge is on -perp side,
+    // so "inward from web edge" = +perp = +lipSign × perp.
     const perpX = -dirY, perpY = dirX;            // +perp (90° CCW)
-    const inwardX = -lipSign * perpX;             // pointing from lip edge inward
-    const inwardY = -lipSign * perpY;
-    const OFFSET_PT = 0.8;                        // ~0.4pt either side of edge appears as paired line
-    const a0 = polyPts[lipEdgeIdx[0]]!;
-    const a1 = polyPts[lipEdgeIdx[1]]!;
+    const inwardX = lipSign * perpX;
+    const inwardY = lipSign * perpY;
+    const OFFSET_PT = 0.8;
+    const a0 = polyPts[webEdgeIdx[0]]!;
+    const a1 = polyPts[webEdgeIdx[1]]!;
     page.drawLine({
       start: { x: a0.x + inwardX * OFFSET_PT, y: a0.y + inwardY * OFFSET_PT },
       end:   { x: a1.x + inwardX * OFFSET_PT, y: a1.y + inwardY * OFFSET_PT },
       thickness: 0.3,
       color: rgb(0, 0, 0),
     });
+
+    // C-section orientation marker — small bracket below the bottom of
+    // the stud, opening toward the LIP (= away from the doubled web edge,
+    // toward the lighter / single-line edge above).
+    drawCMarkerBelowStud(page, m, lipSign, layout);
   }
 
   // Stick label — rotated 90° CCW for vertical sticks (place inside the
@@ -1182,11 +1220,12 @@ function drawDimChains(
     });
     // Rotated 90° label below the tick. pdf-lib rotates around the text
     // origin (bottom-left of glyph), so for a CCW-90 rotation we offset
-    // the y to land below the tick.
+    // the y to land below the tick. Size 9 (Scott, 2026-05-09 — was 6,
+    // illegible at typical print scale).
     page.drawText(String(Math.round(xMm)), {
-      x: xPt + 2,
+      x: xPt + 3,
       y: yBaseline - 5,
-      size: 6,
+      size: 9,
       font,
       color: rgb(0, 0, 0),
       rotate: degrees(90),
@@ -1214,11 +1253,116 @@ function drawDimChains(
     });
     page.drawText(String(Math.round(yMm)), {
       x: xLine + 5,
-      y: yPt - 2,
-      size: 6,
+      y: yPt - 3,
+      size: 9,
       font,
       color: rgb(0, 0, 0),
     });
+  }
+}
+
+/**
+ * Per-frame tooling legend — small key at the bottom-right of the page
+ * showing the symbol + colour + name of every tool type used on the
+ * frame's sticks. Drawn below the dim chains, above the footer, so it
+ * tucks into otherwise-empty space.
+ *
+ * Per-frame (not per-document) so the key stays compact: a frame with
+ * only Bolts and Inner Dimples gets a 2-row legend, not the full 14-row
+ * palette.
+ *
+ * Layout: vertical column. Each row = symbol swatch (drawn at the same
+ * size + colour the marker uses on the stick) + label text. Box hugs
+ * the right margin, sized to fit the rows.
+ */
+function drawToolingLegend(
+  page: PDFPage,
+  frame: RfyFrame,
+  layout: PageLayout,
+  font: any,
+  W: number,
+): void {
+  // Collect every distinct ToolType present on this frame's sticks.
+  const present = new Set<ToolType>();
+  for (const stick of frame.sticks) {
+    for (const op of stick.tooling) present.add(op.type);
+  }
+  if (present.size === 0) return;
+
+  // Sort by a fixed "operator-friendly" order so the legend reads the
+  // same way every time (lip notches first, then flange variants, then
+  // bolts/screws, then services/dimples/swages, then chamfers).
+  const ORDER: ToolType[] = [
+    "LipNotch", "LeftFlange", "RightFlange",
+    "LeftPartialFlange", "RightPartialFlange",
+    "Web", "InnerNotch",
+    "Bolt", "ScrewHoles",
+    "InnerDimple", "Swage", "InnerService",
+    "Chamfer", "TrussChamfer",
+  ];
+  const rows = ORDER.filter(t => present.has(t));
+
+  // Box dimensions in pt.
+  const ROW_HEIGHT = 12;
+  const PADDING = 4;
+  const BOX_WIDTH = 110;
+  const BOX_HEIGHT = rows.length * ROW_HEIGHT + PADDING * 2;
+  const SWATCH_X_OFFSET = PADDING + 8;
+  const LABEL_X_OFFSET = PADDING + 20;
+
+  // Pin to PAGE-absolute coordinates, not layout-relative.
+  // layout.oy is the frame-bbox-aware origin (mm → pt) and can be very
+  // negative when bbox.minY > 0 in projection space (e.g. truss frames
+  // at high Y), which previously dragged the legend below page bottom
+  // and tripped the "moveTos within page bounds" regression test.
+  // The footer band occupies y ∈ [MARGIN_PT .. MARGIN_PT + FOOTER_HEIGHT_PT].
+  // Sit the legend immediately above it, hugging the right margin.
+  const boxX = W - MARGIN_PT - BOX_WIDTH;
+  const boxY = MARGIN_PT + FOOTER_HEIGHT_PT + 6;
+  // (suppress unused-param lint for `layout` — we keep it in the signature
+  // for future use but don't currently consult it.)
+  void layout;
+
+  // Background — light yellow tint matching the title block, lets the
+  // legend stand out without overwhelming the line work.
+  page.drawRectangle({
+    x: boxX,
+    y: boxY,
+    width: BOX_WIDTH,
+    height: BOX_HEIGHT,
+    color: rgb(1, 0.98, 0.85),
+    borderColor: rgb(0.6, 0.6, 0.6),
+    borderWidth: 0.5,
+  });
+
+  // Title row (above the rows, just inside top of box).
+  page.drawText("Tooling key", {
+    x: boxX + PADDING,
+    y: boxY + BOX_HEIGHT - PADDING - 8,
+    size: 7,
+    font,
+    color: rgb(0.2, 0.2, 0.2),
+  });
+
+  // Rows — symbol swatch at left, label at right. Iterate top-down so
+  // the first tool in ORDER is at the top of the box.
+  let cy = boxY + BOX_HEIGHT - PADDING - ROW_HEIGHT - 6;
+  for (const tool of rows) {
+    const color = TOOL_COLOR[tool];
+    const swatchPt = { x: boxX + SWATCH_X_OFFSET, y: cy + 3 };
+    // Draw the swatch using the same glyph the renderer puts on the
+    // stick — share `drawMarker` so the legend visually matches the
+    // marker exactly. Use a fixed swatch radius (3pt).
+    drawMarker(page, swatchPt, tool, 3, color);
+    // Label.
+    page.drawText(TOOL_LABEL[tool], {
+      x: boxX + LABEL_X_OFFSET,
+      y: cy,
+      size: 7,
+      font,
+      color: rgb(0, 0, 0),
+    });
+    cy -= ROW_HEIGHT;
   }
 }
 
@@ -1324,6 +1468,73 @@ function drawFooter(
  * signal as the asymmetric outline's doubled-line side, so the two
  * indicators always agree).
  */
+/**
+ * Draw the per-stud C-section orientation marker — a small U-bracket
+ * placed below the bottom of each stud, opening toward the LIP side.
+ *
+ * Open direction rule (Scott, 2026-05-09):
+ *   "above the lighter line is the open part of the C"
+ * The bracket's open mouth faces the lip side (= the side with the
+ * single, lighter outline edge on the stick rectangle). This is the
+ * SAME `lipSign` value that drives the asymmetric outline (which puts
+ * the doubled line on the WEB side), so the two indicators always
+ * agree — flip one, both move.
+ *
+ * Geometry: bracket sits OUTSIDE the start end of the stick (the bottom
+ * for a vertical stud, since stickMidline normalises to ascending y).
+ * Three line segments form the U:
+ *   - top flange (toward lip side)
+ *   - web (closed back, toward web side)
+ *   - bottom flange (toward lip side)
+ *
+ * Sized so it reads at typical A3 zoom. Pure black, 1.4pt stroke.
+ */
+function drawCMarkerBelowStud(
+  page: PDFPage,
+  m: Midline,
+  lipSign: 1 | -1,
+  layout: PageLayout,
+): void {
+  const { s, ox, oy } = layout;
+
+  const SIZE = 14;            // bracket "height" along stick axis (pt)
+  const FLANGE = SIZE * 0.6;  // bracket "width" perpendicular to stick (pt)
+  const OFFSET_PT = 18;       // gap between stick start and marker centre
+
+  const dirX = Math.cos(m.angle);
+  const dirY = Math.sin(m.angle);
+
+  const cx = ox + m.start.x * s - dirX * OFFSET_PT;
+  const cy = oy + m.start.y * s - dirY * OFFSET_PT;
+
+  // Local coords (lx along stick, ly across stick = +perp).
+  // The bracket polyline goes:
+  //   top-flange-tip → web-top → web-bot → bot-flange-tip
+  // with the FLANGE TIPS in the +lipSign direction (toward lips), so the
+  // OPEN mouth faces the lip / lighter-line side of the stud.
+  const halfWeb = SIZE / 2;
+  const pts = [
+    { lx: +halfWeb, ly: lipSign * FLANGE },
+    { lx: +halfWeb, ly: 0 },
+    { lx: -halfWeb, ly: 0 },
+    { lx: -halfWeb, ly: lipSign * FLANGE },
+  ].map(({ lx, ly }) => ({
+    // Rotate (lx, ly) into PDF coords using stick angle.
+    // local-x maps along (dirX, dirY); local-y maps along (-dirY, dirX) = +perp.
+    x: cx + lx * dirX + ly * (-dirY),
+    y: cy + lx * dirY + ly * dirX,
+  }));
+
+  for (let i = 0; i < pts.length - 1; i++) {
+    page.drawLine({
+      start: pts[i]!,
+      end: pts[i + 1]!,
+      thickness: 1.4,
+      color: rgb(0, 0, 0),
+    });
+  }
+}
+
 function drawCJunctionMarkers(
   page: PDFPage,
   frame: RfyFrame,
