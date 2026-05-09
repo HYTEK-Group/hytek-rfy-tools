@@ -38,6 +38,10 @@ export async function POST(req: Request) {
     const lower = xml.toLowerCase();
     let scheduleXml: string;
     let frameTypes: Map<string, string> | undefined = undefined;
+    let frameDiagonals: Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]> | undefined = undefined;
+    let frameFasteners: Map<string, { pos: { x: number; y: number }; name: string; count: number }[]> | undefined = undefined;
+    let frameLabels: Map<string, { pos: { x: number; y: number }; text: string; size: number; angle: number }[]> | undefined = undefined;
+    let frameElevations: Map<string, number> | undefined = undefined;
 
     if (lower.includes("<framecad_import")) {
       // Synthesize via codec — fills in tooling-op positions.
@@ -47,6 +51,10 @@ export async function POST(req: Request) {
       }
       scheduleXml = result.xml;
       frameTypes = result.frameTypes;
+      frameDiagonals = result.frameDiagonals;
+      frameFasteners = result.frameFasteners;
+      frameLabels = result.frameLabels;
+      frameElevations = result.frameElevations;
     } else if (lower.includes("<schedule")) {
       scheduleXml = xml;
     } else {
@@ -66,6 +74,10 @@ export async function POST(req: Request) {
       showDimensions,
       showToolingMarks,
       frameTypes,
+      frameDiagonals,
+      frameFasteners,
+      frameLabels,
+      frameElevations,
     });
 
     const safeJob = (doc.project.jobNum || "frames").replace(/[^A-Za-z0-9]/g, "");

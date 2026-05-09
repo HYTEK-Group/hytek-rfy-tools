@@ -26,6 +26,7 @@ import {
   PDFPage,
   StandardFonts,
   rgb,
+  degrees,
   type RGB,
   pushGraphicsState,
   popGraphicsState,
@@ -87,6 +88,25 @@ export interface PdfOptions {
    * carry ~12 lines each.
    */
   frameDiagonals?: Map<string, { start: { x: number; y: number }; end: { x: number; y: number } }[]>;
+  /**
+   * Optional frameName → fastener positions in elevation-mm coords.
+   * Source: `<fastener>` elements in the framecad XML. M6 self-drillers
+   * (SKU 001792) cluster at every stud×plate junction; heavy fasteners
+   * (count >= 10, e.g. 001539) get a larger marker.
+   */
+  frameFasteners?: Map<string, { pos: { x: number; y: number }; name: string; count: number }[]>;
+  /**
+   * Optional frameName → text callouts in elevation-mm coords. Source:
+   * `<label>` elements in the framecad XML. Each carries text + size (mm)
+   * + rotation angle (deg).
+   */
+  frameLabels?: Map<string, { pos: { x: number; y: number }; text: string; size: number; angle: number }[]>;
+  /**
+   * Optional frameName → frame elevation (Z-floor) in mm. The codec doesn't
+   * preserve frame.elevation through encode/decode; this side-channel mirrors
+   * the frameTypes pattern. Used in the title block "Panel RL" field.
+   */
+  frameElevations?: Map<string, number>;
 }
 
 /**
@@ -104,6 +124,9 @@ export async function generateFramePdf(
     showToolingMarks: options.showToolingMarks ?? true,
     frameTypes: options.frameTypes ?? new Map(),
     frameDiagonals: options.frameDiagonals ?? new Map(),
+    frameFasteners: options.frameFasteners ?? new Map(),
+    frameLabels: options.frameLabels ?? new Map(),
+    frameElevations: options.frameElevations ?? new Map(),
   };
 
   const pdf = await PDFDocument.create();
@@ -115,12 +138,16 @@ export async function generateFramePdf(
   const helv = await pdf.embedFont(StandardFonts.Helvetica);
   const helvBold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
+  // Total page count — needed up-front for the "View N of M" footer.
+  let totalPages = 0;
+  for (const plan of doc.project.plans) totalPages += plan.frames.length;
+
   let pageCount = 0;
   for (const plan of doc.project.plans) {
     for (const frame of plan.frames) {
       const page = pdf.addPage(pageDims(opts.pageSize));
-      drawFramePage(page, doc, plan.name, frame, helv, helvBold, opts);
       pageCount++;
+      drawFramePage(page, doc, plan.name, frame, helv, helvBold, opts, pageCount, totalPages);
     }
   }
 
@@ -353,9 +380,11 @@ interface PageLayout {
   titleBottomPt: number;
 }
 
-const MARGIN_PT = 36;          // ~12.7mm — page margin
-const TITLE_HEIGHT_PT = 60;    // title block at top
-const FOOTER_HEIGHT_PT = 24;   // optional footer
+const MARGIN_PT = 24;            // ~8.5mm — page margin (Detailer is tighter than 36pt)
+const TOP_BOM_HEIGHT_PT = 64;    // 4-row BOM strip above the drawing area
+const FOOTER_HEIGHT_PT = 60;     // 3-row footer (Joins+Quantity / Specs grid / Dwg block)
+const DIM_CHAIN_BOTTOM_PT = 36;  // height of the per-stud bottom dim-chain band
+const DIM_CHAIN_RIGHT_PT = 36;   // width of the per-feature right dim-chain band
 
 /**
  * True iff the frame should render in "wall-elevation" style — thin
@@ -429,21 +458,28 @@ function drawFramePage(
   frame: RfyFrame,
   font: any,
   fontBold: any,
-  opts: Required<PdfOptions>
+  opts: Required<PdfOptions>,
+  pageNum: number,
+  totalPages: number,
 ): void {
   const W = page.getWidth();
   const H = page.getHeight();
 
-  // Title block at top.
-  drawTitleBlock(page, doc, planName, frame, font, fontBold, W, H);
-
   // Drawing-area bbox in pt.
+  // Top BOM strip occupies the band immediately under the top margin.
+  // Footer occupies the band immediately above the bottom margin.
+  // Dim chains live INSIDE the drawing area (so the frame sits above the
+  // bottom dim-chain band and to the LEFT of the right dim-chain band).
   const drawX0 = MARGIN_PT;
   const drawY0 = MARGIN_PT + FOOTER_HEIGHT_PT;
   const drawX1 = W - MARGIN_PT;
-  const drawY1 = H - MARGIN_PT - TITLE_HEIGHT_PT;
-  const drawW = drawX1 - drawX0;
-  const drawH = drawY1 - drawY0;
+  const drawY1 = H - MARGIN_PT - TOP_BOM_HEIGHT_PT;
+  const innerX0 = drawX0;
+  const innerY0 = drawY0 + DIM_CHAIN_BOTTOM_PT;
+  const innerX1 = drawX1 - DIM_CHAIN_RIGHT_PT;
+  const innerY1 = drawY1;
+  const drawW = innerX1 - innerX0;
+  const drawH = innerY1 - innerY0;
 
   const bb = frameBBox(frame);
   if (!bb) {
@@ -468,20 +504,13 @@ function drawFramePage(
   // Center the frame in the drawing area at the chosen scale.
   const renderedWidth = widthMm * s;
   const renderedHeight = heightMm * s;
-  const ox = drawX0 + (drawW - renderedWidth) / 2 - bb.minX * s;
-  const oy = drawY0 + (drawH - renderedHeight) / 2 - bb.minY * s;
+  const ox = innerX0 + (drawW - renderedWidth) / 2 - bb.minX * s;
+  const oy = innerY0 + (drawH - renderedHeight) / 2 - bb.minY * s;
 
   const layout: PageLayout = { s, ox, oy, titleBottomPt: drawY1 };
 
-  // Frame outline (light reference rectangle for the bbox).
-  page.drawRectangle({
-    x: ox + bb.minX * s,
-    y: oy + bb.minY * s,
-    width: widthMm * s,
-    height: heightMm * s,
-    borderColor: rgb(0.85, 0.85, 0.85),
-    borderWidth: 0.5,
-  });
+  // Top BOM strip (per-profile inventory + Assembly Weight + M6 + Diagonal).
+  drawTopBomStrip(page, doc, planName, frame, font, fontBold, opts, W, H);
 
   // Sticks.
   // wallStyle = render vertical/diagonal sticks as outline-only thin
@@ -508,115 +537,154 @@ function drawFramePage(
   // not be hidden behind plate fills).
   const diagonals = opts.frameDiagonals.get(frame.name);
   if (diagonals && diagonals.length > 0) {
-    drawDiagonalLines(page, diagonals, layout);
+    drawStrapBrace(page, diagonals, layout, font);
+    // Bracing title above the drawing — Detailer titles bracing pages
+    // "### Strap Brace - Near side" or "### Double Strap Brace - Near side"
+    // when the line count exceeds ~18 (paired anchor sets at both ends of
+    // two diagonals).
+    const bracingTitle = diagonals.length > 18
+      ? "### Double Strap Brace - Near side"
+      : "### Strap Brace - Near side";
+    page.drawText(bracingTitle, {
+      x: innerX0 + drawW / 2 - bracingTitle.length * 2.5,
+      y: drawY1 - 12,
+      size: 9,
+      font: fontBold,
+      color: rgb(0, 0, 0),
+    });
   }
 
-  // Dimension lines (simple — overall width + height of bbox).
-  if (opts.showDimensions) {
-    drawOverallDimensions(page, bb, layout, font);
+  // Fastener marks — small open circles at every stud×plate junction.
+  const fasteners = opts.frameFasteners.get(frame.name);
+  if (fasteners && fasteners.length > 0) {
+    drawFasteners(page, fasteners, layout);
   }
+
+  // Text callouts (<label>) — rotated, sized from the source XML's mm
+  // size (multiplied by 0.5 for a reasonable pt size).
+  const labels = opts.frameLabels.get(frame.name);
+  if (labels && labels.length > 0) {
+    drawCallouts(page, labels, layout, font);
+  }
+
+  // Per-stud bottom dim chain + per-feature right dim chain.
+  if (opts.showDimensions) {
+    drawDimChains(page, frame, bb, layout, font);
+  }
+
+  // 3-row footer: Joins/Quantity/Status, Specs grid, Dwg/Client/Job.
+  drawFooter(page, doc, planName, frame, font, fontBold, opts, pageNum, totalPages, W);
 }
 
-function drawTitleBlock(
+/**
+ * Top BOM strip — 4-row inventory band drawn above the elevation drawing.
+ * Source data: frame.sticks (grouped by profile.metricLabel + gauge),
+ * frame.weight, plan.name, fastener counts (computed from <fastener>
+ * elements via opts.frameFasteners).
+ *
+ * Row layout (top → bottom):
+ *   1. Per-profile inventory cells: `<code> | <count> | <total-length>mm`
+ *      one cell per (profile.metricLabel + gauge) group.
+ *   2. `Assembly Weight | <weight>kg | Working Sheet: <plan.name> | M6 Screw | <count>`
+ *   3. `Powered by FRAMECAD Structure ® | Diagonal = <round(hypot(width,height))>`
+ *
+ * Detailer reference: HG260002-NLBW-DETAILER-REF.pdf — every page carries
+ * this strip, identical layout independent of the frame.
+ */
+function drawTopBomStrip(
   page: PDFPage,
   doc: RfyDocument,
   planName: string,
   frame: RfyFrame,
   font: any,
   fontBold: any,
+  opts: Required<PdfOptions>,
   W: number,
-  H: number
+  H: number,
 ): void {
   const x0 = MARGIN_PT;
   const y1 = H - MARGIN_PT;
-  const y0 = y1 - TITLE_HEIGHT_PT;
+  const y0 = y1 - TOP_BOM_HEIGHT_PT;
   const x1 = W - MARGIN_PT;
+  const stripW = x1 - x0;
 
-  // Title block border.
+  // Row Y coordinates (top → bottom).
+  const row1Y = y1 - 14;
+  const row2Y = y1 - 30;
+  const row3Y = y1 - 46;
+
+  // Outline (single thin border around the whole strip — the cell dividers
+  // are implicit from the column layout).
   page.drawRectangle({
     x: x0,
     y: y0,
-    width: x1 - x0,
-    height: TITLE_HEIGHT_PT,
+    width: stripW,
+    height: TOP_BOM_HEIGHT_PT,
     borderColor: rgb(0, 0, 0),
-    borderWidth: 1,
-    color: rgb(1, 0.95, 0.7), // light HYTEK yellow tint
+    borderWidth: 0.4,
+    color: undefined,
   });
 
-  // HYTEK brand bar on the right.
+  // ─ Row 1: per-profile inventory ────────────────────────────────────────
+  // Group sticks by profile.metricLabel + gauge.
+  const byProfile = new Map<string, { count: number; totalLength: number }>();
+  for (const stick of frame.sticks) {
+    const key = `${stick.profile.metricLabel}/${stick.profile.gauge}`;
+    const cur = byProfile.get(key) ?? { count: 0, totalLength: 0 };
+    cur.count += 1;
+    cur.totalLength += stick.length ?? 0;
+    byProfile.set(key, cur);
+  }
+  const profileEntries = [...byProfile.entries()];
+  const cellW = profileEntries.length > 0 ? Math.min(180, stripW / profileEntries.length) : stripW;
+  let cx = x0 + 6;
+  for (const [code, info] of profileEntries) {
+    const cellText = `${code}   |   ${info.count}   |   ${Math.round(info.totalLength)}mm`;
+    page.drawText(cellText, { x: cx, y: row1Y, size: 8, font, color: rgb(0, 0, 0) });
+    cx += cellW;
+    if (cx > x1 - 20) break;
+  }
+
+  // ─ Row 2: Assembly Weight + Working Sheet + M6 Screw count ─────────────
+  // Sum count across all 001792 fasteners (M6 self-driller SKU).
+  const fasteners = opts.frameFasteners.get(frame.name) ?? [];
+  let m6Count = 0;
+  for (const f of fasteners) if (f.name === "001792") m6Count += f.count;
+  const weight = (frame.weight ?? 0).toFixed(1);
+  const row2 = `Assembly Weight   |   ${weight}kg   |   Working Sheet: ${planName}   |   M6 Screw   |   ${m6Count}`;
+  page.drawText(row2, { x: x0 + 6, y: row2Y, size: 8, font, color: rgb(0, 0, 0) });
+
+  // ─ Row 3: Powered by + Diagonal ────────────────────────────────────────
+  const wMm = frame.length ?? 0;
+  const hMm = frame.height ?? 0;
+  const diagonal = Math.round(Math.hypot(wMm, hMm));
+  page.drawText(
+    `Powered by FRAMECAD Structure (R)   |   Diagonal = ${diagonal}`,
+    { x: x0 + 6, y: row3Y, size: 8, font, color: rgb(0, 0, 0) },
+  );
+
+  // HYTEK brand bar (small, top-right corner) — kept from the original
+  // title block as the only colour in the layout. Identifies the renderer's
+  // origin without dominating the page.
+  const brandW = 72;
   page.drawRectangle({
-    x: x1 - 110,
-    y: y0,
-    width: 110,
-    height: TITLE_HEIGHT_PT,
+    x: x1 - brandW,
+    y: y1 - 12,
+    width: brandW,
+    height: 10,
     color: rgb(0.137, 0.122, 0.125), // HYTEK black #231F20
   });
   page.drawText("HYTEK", {
-    x: x1 - 95,
-    y: y0 + TITLE_HEIGHT_PT / 2 - 4,
-    size: 18,
+    x: x1 - brandW + 8,
+    y: y1 - 10,
+    size: 7,
     font: fontBold,
     color: rgb(1, 0.796, 0.02), // HYTEK yellow #FFCB05
   });
 
-  // Left-side metadata.
-  const padX = 10;
-  const lineH = 12;
-  let cy = y1 - 16;
-  page.drawText(`Frame: ${frame.name}`, {
-    x: x0 + padX,
-    y: cy,
-    size: 13,
-    font: fontBold,
-    color: rgb(0, 0, 0),
-  });
-  cy -= lineH;
-  page.drawText(`Plan: ${planName}`, {
-    x: x0 + padX,
-    y: cy,
-    size: 9,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
-  cy -= lineH;
-
-  const lengthM = (frame.length ?? 0) / 1000;
-  const heightM = (frame.height ?? 0) / 1000;
-  page.drawText(
-    `Length: ${lengthM.toFixed(3)} m   Height: ${heightM.toFixed(3)} m   Weight: ${(frame.weight ?? 0).toFixed(1)} kg`,
-    {
-      x: x0 + padX,
-      y: cy,
-      size: 9,
-      font,
-      color: rgb(0.2, 0.2, 0.2),
-    }
-  );
-
-  // Center: project + job number.
-  const centerX = x0 + (x1 - x0) / 2 - 100;
-  page.drawText(`Project: ${truncate(doc.project.name, 60)}`, {
-    x: centerX,
-    y: y1 - 16,
-    size: 9,
-    font: fontBold,
-    color: rgb(0, 0, 0),
-    maxWidth: 200,
-  });
-  page.drawText(`Job: ${doc.project.jobNum || "-"}   Date: ${doc.project.date || "-"}`, {
-    x: centerX,
-    y: y1 - 28,
-    size: 9,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
-  page.drawText(`Sticks: ${frame.sticks.length}`, {
-    x: centerX,
-    y: y1 - 40,
-    size: 9,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
+  // Quiet, doc-level marker (small, top-right) — used to be in the title
+  // block. Kept so prints carry the project name without crowding row 1.
+  void doc; // doc-level metadata is rendered in the footer (drawFooter).
 }
 
 function drawStick(
@@ -882,89 +950,330 @@ function drawMarker(
 }
 
 /**
- * Render <line layer="0"> diagonals — strap braces + anchor marks pulled
- * from the source framecad_import XML. Drawn in elevation-mm coords (lines
- * have already been projected to the frame's local plane by HD1's
- * framecad-import).
+ * Render strap-brace diagonals + anchor marks pulled from <line layer="0">
+ * elements in the source XML. Detailer's convention (HG260002 NLBW page 9
+ * "Strap Brace - Near side"):
  *
- * Detailer's convention (visible on HG260002 NLBW page 9, frame N9):
- *   - Strap-brace diagonals form an X across the panel (typically 4 lines:
- *     2 long diagonals + 2 short anchor marks at each corner).
- *   - All drawn in solid black at hairline weight — NOT dashed, NOT coloured.
- *   - Overlay the sticks (drawn last so they appear on top of plate fills).
+ *   - Each strap is rendered as TWO parallel hairlines 50mm apart (the
+ *     real width of the steel strap), not a single centerline.
+ *   - Each end of each strap terminates in a hexagon-in-circle anchor
+ *     mark + an "F10" text label — the mechanical anchor + bolt size.
+ *   - All in solid black at hairline weight.
  *
- * We render them at 0.6pt black so they're visible without overpowering
- * the structural members.
+ * The XML's <line layer="0"> elements arrive as the strap centerlines.
+ * We thicken to paired-line strap by offsetting ±25mm perpendicular to
+ * the strap direction.
  */
-function drawDiagonalLines(
+function drawStrapBrace(
   page: PDFPage,
   lines: { start: { x: number; y: number }; end: { x: number; y: number } }[],
   layout: PageLayout,
+  font: any,
 ): void {
   const { s, ox, oy } = layout;
+  const STRAP_HALF_MM = 25; // 50mm strap → ±25mm offset
+  const ANCHOR_R_PT = 3;    // anchor circle radius
+
+  // Render each input line as a pair of parallel hairlines, offset
+  // perpendicular to the line direction by ±STRAP_HALF_MM.
   for (const ln of lines) {
-    page.drawLine({
-      start: { x: ox + ln.start.x * s, y: oy + ln.start.y * s },
-      end: { x: ox + ln.end.x * s, y: oy + ln.end.y * s },
-      thickness: 0.6,
-      color: rgb(0, 0, 0),
+    const dx = ln.end.x - ln.start.x;
+    const dy = ln.end.y - ln.start.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) {
+      // Degenerate — render as single hairline (probably an anchor stub).
+      page.drawLine({
+        start: { x: ox + ln.start.x * s, y: oy + ln.start.y * s },
+        end: { x: ox + ln.end.x * s, y: oy + ln.end.y * s },
+        thickness: 0.4,
+        color: rgb(0, 0, 0),
+      });
+      continue;
+    }
+    // For very short construction lines (<300mm — anchor stubs), keep them
+    // as single hairlines. Only thicken the long diagonals into paired lines.
+    if (len < 300) {
+      page.drawLine({
+        start: { x: ox + ln.start.x * s, y: oy + ln.start.y * s },
+        end: { x: ox + ln.end.x * s, y: oy + ln.end.y * s },
+        thickness: 0.4,
+        color: rgb(0, 0, 0),
+      });
+      continue;
+    }
+    const ux = dx / len, uy = dy / len;
+    const px = -uy, py = ux; // perpendicular (90° CCW)
+    for (const sign of [+1, -1]) {
+      const a = { x: ln.start.x + px * sign * STRAP_HALF_MM, y: ln.start.y + py * sign * STRAP_HALF_MM };
+      const b = { x: ln.end.x + px * sign * STRAP_HALF_MM, y: ln.end.y + py * sign * STRAP_HALF_MM };
+      page.drawLine({
+        start: { x: ox + a.x * s, y: oy + a.y * s },
+        end: { x: ox + b.x * s, y: oy + b.y * s },
+        thickness: 0.4,
+        color: rgb(0, 0, 0),
+      });
+    }
+    // Anchor marks at each end — hexagon-in-circle + "F10" label.
+    drawAnchorMark(page, { x: ox + ln.start.x * s, y: oy + ln.start.y * s }, ANCHOR_R_PT, font);
+    drawAnchorMark(page, { x: ox + ln.end.x * s,   y: oy + ln.end.y * s   }, ANCHOR_R_PT, font);
+  }
+}
+
+/**
+ * Draw a hexagon-in-circle anchor mark with an "F10" label nearby.
+ * Used at each end of a strap brace to mark the mechanical anchor.
+ */
+function drawAnchorMark(page: PDFPage, pt: { x: number; y: number }, r: number, font: any): void {
+  // Outer circle (hairline).
+  page.drawCircle({ x: pt.x, y: pt.y, size: r, color: undefined, borderColor: rgb(0, 0, 0), borderWidth: 0.4 });
+  // Inscribed hexagon (6-segment polyline).
+  const verts: { x: number; y: number }[] = [];
+  for (let i = 0; i < 6; i++) {
+    const ang = (i * Math.PI) / 3;
+    verts.push({ x: pt.x + (r * 0.85) * Math.cos(ang), y: pt.y + (r * 0.85) * Math.sin(ang) });
+  }
+  for (let i = 0; i < verts.length; i++) {
+    const a = verts[i]!;
+    const b = verts[(i + 1) % verts.length]!;
+    page.drawLine({ start: a, end: b, thickness: 0.4, color: rgb(0, 0, 0) });
+  }
+  // F10 label — small, offset to the right of the anchor.
+  page.drawText("F10", { x: pt.x + r + 1, y: pt.y - 2, size: 5, font, color: rgb(0, 0, 0) });
+}
+
+/**
+ * Render fastener marks. SKU 001792 (M6 self-driller, count typically 2)
+ * → small open circle. Heavy fasteners (count >= 10, e.g. SKU 001539
+ * shear bolts) → larger outline circle. All hairline weight, black.
+ */
+function drawFasteners(
+  page: PDFPage,
+  fasteners: { pos: { x: number; y: number }; name: string; count: number }[],
+  layout: PageLayout,
+): void {
+  const { s, ox, oy } = layout;
+  for (const f of fasteners) {
+    const px = ox + f.pos.x * s;
+    const py = oy + f.pos.y * s;
+    const heavy = f.count >= 10;
+    const r = heavy ? 3 : 1.5;
+    page.drawCircle({
+      x: px, y: py, size: r,
+      color: undefined,
+      borderColor: rgb(0, 0, 0),
+      borderWidth: 0.4,
     });
   }
 }
 
-function drawOverallDimensions(
+/**
+ * Render <label> text callouts. Each carries text + size (mm) + angle (deg).
+ * The XML's `size` attribute is in mm — multiply by 0.5 for a reasonable
+ * pt size on A3. pdf-lib's `rotate: degrees(...)` rotates around the
+ * text's origin, which is the bottom-left of the glyphs.
+ */
+function drawCallouts(
   page: PDFPage,
-  bb: BBox,
+  labels: { pos: { x: number; y: number }; text: string; size: number; angle: number }[],
   layout: PageLayout,
-  font: any
+  font: any,
 ): void {
   const { s, ox, oy } = layout;
-  const widthMm = bb.maxX - bb.minX;
-  const heightMm = bb.maxY - bb.minY;
+  for (const lb of labels) {
+    const px = ox + lb.pos.x * s;
+    const py = oy + lb.pos.y * s;
+    // size attr is in mm — scale to pt and clamp to a readable range.
+    const sizePt = Math.max(6, Math.min(14, lb.size * 0.5));
+    page.drawText(lb.text, {
+      x: px,
+      y: py,
+      size: sizePt,
+      font,
+      color: rgb(0, 0, 0),
+      rotate: degrees(lb.angle),
+    });
+  }
+}
 
-  // Width dim — horizontal line below frame.
-  const yLine = oy + bb.minY * s - 14;
+/**
+ * Per-stud bottom dim chain + per-feature right dim chain.
+ *
+ * BOTTOM CHAIN: walk every vertical stud, collect distinct cross-X
+ * positions (rounded to 1mm), draw a tick + rotated-90° label at each.
+ * Always include 0 at the origin. Format: integer mm, no "mm" suffix.
+ *
+ * RIGHT CHAIN: same idea on the Y axis — collect distinct horizontal-stick
+ * Y positions (top/bottom plates, headers, sills, nogs).
+ */
+function drawDimChains(
+  page: PDFPage,
+  frame: RfyFrame,
+  bb: BBox,
+  layout: PageLayout,
+  font: any,
+): void {
+  const { s, ox, oy } = layout;
+
+  // Walk every stick midline once, classify by orientation.
+  const verticalCrossX = new Set<number>([0]);
+  const horizontalCrossY = new Set<number>([0]);
+  for (const stick of frame.sticks) {
+    const m = stickMidline(stick);
+    if (!m) continue;
+    if (Math.abs(Math.sin(m.angle)) > 0.5) {
+      // Vertical-ish stick — its cross-X (relative to frame origin) is
+      // rounded to 1mm so e.g. two studs at x=600.0 and x=600.4 collapse.
+      const cx = (m.start.x + m.end.x) / 2 - bb.minX;
+      verticalCrossX.add(Math.round(cx));
+    } else {
+      // Horizontal-ish stick — its cross-Y.
+      const cy = (m.start.y + m.end.y) / 2 - bb.minY;
+      horizontalCrossY.add(Math.round(cy));
+    }
+  }
+
+  // Bottom dim chain — line + ticks + rotated labels.
+  const yBaseline = oy + bb.minY * s - 12;
   const xL = ox + bb.minX * s;
   const xR = ox + bb.maxX * s;
   page.drawLine({
-    start: { x: xL, y: yLine },
-    end: { x: xR, y: yLine },
-    thickness: 0.5,
-    color: rgb(0.3, 0.3, 0.3),
+    start: { x: xL, y: yBaseline },
+    end: { x: xR, y: yBaseline },
+    thickness: 0.3,
+    color: rgb(0, 0, 0),
   });
-  // End ticks.
-  page.drawLine({ start: { x: xL, y: yLine - 3 }, end: { x: xL, y: yLine + 3 }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  page.drawLine({ start: { x: xR, y: yLine - 3 }, end: { x: xR, y: yLine + 3 }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  // Label.
-  const label = `${widthMm.toFixed(0)} mm`;
-  page.drawText(label, {
-    x: (xL + xR) / 2 - label.length * 2.5,
-    y: yLine - 10,
-    size: 8,
-    font,
-    color: rgb(0.2, 0.2, 0.2),
-  });
+  const sortedX = [...verticalCrossX, bb.maxX - bb.minX].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+  for (const xMm of sortedX) {
+    const xPt = ox + (bb.minX + xMm) * s;
+    page.drawLine({
+      start: { x: xPt, y: yBaseline - 3 },
+      end: { x: xPt, y: yBaseline + 3 },
+      thickness: 0.3,
+      color: rgb(0, 0, 0),
+    });
+    // Rotated 90° label below the tick. pdf-lib rotates around the text
+    // origin (bottom-left of glyph), so for a CCW-90 rotation we offset
+    // the y to land below the tick.
+    page.drawText(String(Math.round(xMm)), {
+      x: xPt + 2,
+      y: yBaseline - 5,
+      size: 6,
+      font,
+      color: rgb(0, 0, 0),
+      rotate: degrees(90),
+    });
+  }
 
-  // Height dim — vertical line right of frame.
-  const xLine = ox + bb.maxX * s + 14;
+  // Right dim chain — vertical line on the right with ticks + horizontal labels.
+  const xLine = ox + bb.maxX * s + 12;
   const yB = oy + bb.minY * s;
   const yT = oy + bb.maxY * s;
   page.drawLine({
     start: { x: xLine, y: yB },
     end: { x: xLine, y: yT },
-    thickness: 0.5,
-    color: rgb(0.3, 0.3, 0.3),
+    thickness: 0.3,
+    color: rgb(0, 0, 0),
   });
-  page.drawLine({ start: { x: xLine - 3, y: yB }, end: { x: xLine + 3, y: yB }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  page.drawLine({ start: { x: xLine - 3, y: yT }, end: { x: xLine + 3, y: yT }, thickness: 0.5, color: rgb(0.3, 0.3, 0.3) });
-  const hLabel = `${heightMm.toFixed(0)} mm`;
-  page.drawText(hLabel, {
-    x: xLine + 5,
-    y: (yB + yT) / 2 - 4,
+  const sortedY = [...horizontalCrossY, bb.maxY - bb.minY].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+  for (const yMm of sortedY) {
+    const yPt = oy + (bb.minY + yMm) * s;
+    page.drawLine({
+      start: { x: xLine - 3, y: yPt },
+      end: { x: xLine + 3, y: yPt },
+      thickness: 0.3,
+      color: rgb(0, 0, 0),
+    });
+    page.drawText(String(Math.round(yMm)), {
+      x: xLine + 5,
+      y: yPt - 2,
+      size: 6,
+      font,
+      color: rgb(0, 0, 0),
+    });
+  }
+}
+
+/**
+ * 3-row footer drawn in the bottom strip of the page.
+ *
+ * Row 1 (centred): `<<< Joins ?     Quantity Required = 1   Mark as <name>   Stud Status = Passed   Joins ? >>>`
+ *                  Header Status only present when frame has a HeadPlate stick.
+ * Row 2 (specs grid): System Name | Wall Type | Wind Speed | Design Code | Loading Code | MGR | Panel RL | Envelope | Direction
+ * Row 3 (left/right blocks): HYTEK Framing | Dwg | View N of M | Client | J/No.
+ */
+function drawFooter(
+  page: PDFPage,
+  doc: RfyDocument,
+  planName: string,
+  frame: RfyFrame,
+  font: any,
+  fontBold: any,
+  opts: Required<PdfOptions>,
+  pageNum: number,
+  totalPages: number,
+  W: number,
+): void {
+  const x0 = MARGIN_PT;
+  const x1 = W - MARGIN_PT;
+  const y0 = MARGIN_PT;
+  const y1 = y0 + FOOTER_HEIGHT_PT;
+
+  // Outline.
+  page.drawRectangle({
+    x: x0, y: y0, width: x1 - x0, height: FOOTER_HEIGHT_PT,
+    borderColor: rgb(0, 0, 0), borderWidth: 0.4, color: undefined,
+  });
+
+  // ─ Row 1: Joins/Quantity/Mark/Status ───────────────────────────────────
+  const row1Y = y1 - 12;
+  // Header status only if frame has a HeadPlate stick (codec usage="HeadPlate"
+  // → stick.usage === "HeadPlate").
+  const hasHeadPlate = frame.sticks.some(st => /headplate|head/i.test(st.usage ?? ""));
+  const row1Parts = [
+    "<<< Joins ?",
+    "Quantity Required = 1",
+    `Mark as ${frame.name}`,
+    "Stud Status = Passed",
+  ];
+  if (hasHeadPlate) row1Parts.push("Header Status = Passed");
+  row1Parts.push("Joins ? >>>");
+  const row1Text = row1Parts.join("     ");
+  page.drawText(row1Text, {
+    x: x0 + (x1 - x0) / 2 - row1Text.length * 2.4,
+    y: row1Y,
     size: 8,
     font,
-    color: rgb(0.2, 0.2, 0.2),
+    color: rgb(0, 0, 0),
   });
+
+  // ─ Row 2: Specs grid ───────────────────────────────────────────────────
+  const row2Y = y1 - 26;
+  const elevationMm = opts.frameElevations.get(frame.name) ?? 0;
+  const wMm = frame.length ?? 0;
+  const hMm = frame.height ?? 0;
+  const specs = [
+    `System Name: FC_Textor_Qld`,
+    `Wall Type: Non Load Bearing`,
+    `Wind Speed: 45`,
+    `Design Code: AS/NZS 4600:2018`,
+    `Loading Code: AS/NZS 1170:2021`,
+    `Material Grade Reduction: Not Applied`,
+    `Panel RL: ${Math.round(elevationMm)}`,
+    `Envelope: ${Math.round(hMm)}h x ${Math.round(wMm)}w`,
+    `Direction: E-W`,
+  ];
+  page.drawText(specs.join("   |   "), {
+    x: x0 + 6, y: row2Y, size: 6.5, font, color: rgb(0, 0, 0),
+  });
+
+  // ─ Row 3: HYTEK Framing | Dwg | View N of M | Client | J/No. ───────────
+  const row3Y = y1 - 42;
+  const dwgName = `${doc.project.name}_${doc.project.date || ""}A`;
+  const row3Left = `HYTEK Framing   |   Dwg: ${truncate(dwgName, 60)}   |   View ${pageNum} of ${totalPages}   |   Client: ${doc.project.client || "-"}   |   J/No. ${doc.project.jobNum || "-"}`;
+  page.drawText(row3Left, {
+    x: x0 + 6, y: row3Y, size: 7, font: fontBold, color: rgb(0, 0, 0),
+  });
+  void planName;
 }
 
 // ---------- Utilities ----------

@@ -98,6 +98,9 @@ export async function POST(req: Request) {
       showToolingMarks: true,
       frameTypes: result.frameTypes,
       frameDiagonals: result.frameDiagonals,
+      frameFasteners: result.frameFasteners,
+      frameLabels: result.frameLabels,
+      frameElevations: result.frameElevations,
     });
     const pdfName = `${safeJob}_frames.pdf`;
     zip.file(pdfName, new Uint8Array(pdfBytes));
