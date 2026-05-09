@@ -579,27 +579,27 @@ describe("generateFramePdf — fasteners + labels + elevation plumbing", () => {
   });
 });
 
-// ---------- Regression: end-stud orientation (web OUTWARD) ----------
+// ---------- Regression: end-stud orientation (UNIFIED with jamb rule) ----------
 //
-// Scott's structural rule (2026-05-09 final): END STUD's WEB faces the
-// wall EDGE (the corner connection where another wall meets), LIPS face
-// the wall BODY (interior). This is the standard steel-framing
-// convention — the corner connection bolts go through the web.
+// Scott's final rule (2026-05-09 — locked after N1 left-end-stud C-marker
+// screenshot): boundary studs (frame ends AND opening jambs) all follow
+// the SAME lipSign convention based on which side of the boundary they're
+// on:
+//   stud on the LEFT side of any boundary  → lipSign=+1
+//   stud on the RIGHT side of any boundary → lipSign=-1
 //
-// computeWebOverrides forces:
-//   leftmost stud  → lipSign=-1 → lips on -perp = RIGHT in elevation = wall body
-//                                   web  on +perp = LEFT  in elevation = wall edge
-//   rightmost stud → lipSign=+1 → lips on +perp = LEFT  = wall body
-//                                   web  on -perp = RIGHT = wall edge
+// For a leftmost end stud (x=0..41), lipSign=+1 means:
+//   lips on +perp = LEFT  (= wall edge / corner)
+//   web  on -perp = RIGHT (= wall body interior)
 //
-// "Doubled line shows the web" → for the leftmost stud, the doubled
-// outline edge sits on the OUTER (LEFT) face — NOT the inner face.
+// Doubled outline edge sits on the WEB side = inside the RIGHT edge of
+// the stud (just to the left of studMaxX). C-marker mouth opens toward
+// the LIP side = LEFT (the wall edge / outer).
 //
-// Geometric assertion: with 3 studs at x=0/600/1200, the leftmost stud
-// (x=0..41) has its WEB on the LEFT (outer) side. The doubled interior
-// line lands at x ~= studMinX + OFFSET_PT — just inside the LEFT edge.
+// Geometric assertion: with 3 studs at x=0/600/1200, the leftmost stud's
+// doubled interior line lands at x ~= studMaxX - OFFSET_PT.
 describe("generateFramePdf — end-stud orientation", () => {
-  it("leftmost end-stud doubles its OUTER long edge (web faces wall edge)", async () => {
+  it("leftmost end-stud doubles its INNER long edge (web faces wall body)", async () => {
     // Build a wall frame "ExternalWall" so isWallFrame() returns true via
     // the frameTypes Map (matches production XML's frame.type attribute).
     const studHeight = 2400;
@@ -664,23 +664,23 @@ describe("generateFramePdf — end-stud orientation", () => {
     const studMinX = Math.min(...leftmost.xs);
     const studMaxX = Math.max(...leftmost.xs);
 
-    // For the leftmost stud, lipSign=-1 means lips on -perp (RIGHT = wall
-    // body) and WEB on +perp (LEFT = wall edge / corner). The doubled
-    // interior line sits on the WEB side — just INSIDE the LEFT edge,
-    // i.e. just to the right of studMinX. It should NOT sit inside the
-    // RIGHT edge.
+    // For the leftmost stud, lipSign=+1 means lips on +perp (LEFT = wall
+    // edge) and WEB on -perp (RIGHT = wall body interior). The doubled
+    // interior line sits on the WEB side — just INSIDE the RIGHT edge,
+    // i.e. just to the left of studMaxX. It should NOT sit inside the
+    // LEFT edge.
     //
     // Extract moveTo points within ~3pt of each long edge of the stud.
     const ptsAll = moveToPoints(stream);
     const insideLeftEdge = ptsAll.filter(p => p.x > studMinX + 0.2 && p.x < studMinX + 3 && p.y < 1000 && p.y > 50);
     const insideRightEdge = ptsAll.filter(p => p.x > studMaxX - 3 && p.x < studMaxX - 0.2 && p.y < 1000 && p.y > 50);
-    // Expect at least one moveTo within ~3pt of the LEFT edge interior
-    // (the asymmetric doubled WEB line on the wall-edge side). If the
-    // override sign is flipped, this would appear on the RIGHT edge.
-    expect(insideLeftEdge.length).toBeGreaterThanOrEqual(1);
-    // Inverse sanity: more interior moveTos on left than right for a
-    // leftmost stud where web faces LEFT (the wall edge).
-    expect(insideLeftEdge.length).toBeGreaterThanOrEqual(insideRightEdge.length);
+    // Expect at least one moveTo within ~3pt of the RIGHT edge interior
+    // (the asymmetric doubled WEB line on the wall-body side). If the
+    // override sign is flipped, this would appear on the LEFT edge.
+    expect(insideRightEdge.length).toBeGreaterThanOrEqual(1);
+    // Inverse sanity: more interior moveTos on right than left for a
+    // leftmost stud where web faces RIGHT (the wall body interior).
+    expect(insideRightEdge.length).toBeGreaterThanOrEqual(insideLeftEdge.length);
   });
 });
 
