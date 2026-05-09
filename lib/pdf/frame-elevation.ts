@@ -843,19 +843,15 @@ function drawStick(
     //
     // lipSign=+1 → lips on +perp (edge 0-1)  → web on -perp (edge 2-3)  → DOUBLE 2-3
     // lipSign=-1 → lips on -perp (edge 2-3)  → web on +perp (edge 0-1)  → DOUBLE 0-1
-    // FIX (Scott, 2026-05-09 N1 zoom screenshot): doubled line was landing
-    // on the LIP edge under the previous mapping. Swapped to put it on the
-    // SAME physical side as the C-marker mouth (web side). Both indicators
-    // now point at the closed back of the C, single source of truth.
-    const webEdgeIdx: [number, number] = lipSign === +1 ? [0, 1] : [2, 3];
+    const webEdgeIdx: [number, number] = lipSign === +1 ? [2, 3] : [0, 1];
     const dirX = Math.cos(m.angle);
     const dirY = Math.sin(m.angle);
     // Doubled line sits INSIDE the web edge (between web edge and the
-    // stick's centerline). For lipSign=+1, web edge is now on +perp side
-    // (post-swap), so "inward from web edge" = -perp = -lipSign × perp.
+    // stick's centerline). For lipSign=+1, web edge is on -perp side,
+    // so "inward from web edge" = +perp = +lipSign × perp.
     const perpX = -dirY, perpY = dirX;            // +perp (90° CCW)
-    const inwardX = -lipSign * perpX;
-    const inwardY = -lipSign * perpY;
+    const inwardX = lipSign * perpX;
+    const inwardY = lipSign * perpY;
     const OFFSET_PT = 0.8;
     const a0 = polyPts[webEdgeIdx[0]]!;
     const a1 = polyPts[webEdgeIdx[1]]!;
@@ -1612,20 +1608,19 @@ function drawCMarkerBelowStud(
   // The bracket polyline goes:
   //   top-flange-tip → web-top → web-bot → bot-flange-tip
   //
-  // CONVENTION (Scott, 2026-05-09 N1 side-by-side vs Detailer):
-  // The bracket's OPEN MOUTH faces the WEB side — the SAME side as the
-  // doubled-line edge of the stick rectangle above. NOT the lip side.
-  // Both visual indicators (marker + asymmetric outline) point at the
-  // closed back of the C. The lip side stays clean (no marker, single line).
+  // CONVENTION (Scott, 2026-05-09 — final + canonical, matching Detailer):
+  //   Doubled line on stick = WEB side
+  //   Single thin line on stick = LIP side
+  //   C-marker open mouth = LIP side (the open part of the C-section)
+  //   ⇒ marker mouth and doubled line are on OPPOSITE sides of the stick.
   //
-  // Web side = -lipSign × +perp. So flange tips extend in -lipSign direction.
+  // Lip side = +lipSign × +perp. So flange tips extend in +lipSign direction.
   const halfWeb = SIZE / 2;
-  const webSign = -lipSign as 1 | -1;
   const pts = [
-    { lx: +halfWeb, ly: webSign * FLANGE },
+    { lx: +halfWeb, ly: lipSign * FLANGE },
     { lx: +halfWeb, ly: 0 },
     { lx: -halfWeb, ly: 0 },
-    { lx: -halfWeb, ly: webSign * FLANGE },
+    { lx: -halfWeb, ly: lipSign * FLANGE },
   ].map(({ lx, ly }) => ({
     // Rotate (lx, ly) into PDF coords using stick angle.
     // local-x maps along (dirX, dirY); local-y maps along (-dirY, dirX) = +perp.
