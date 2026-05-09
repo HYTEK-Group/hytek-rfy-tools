@@ -249,16 +249,28 @@ function isWallPlan(planName: string): boolean {
 }
 
 /**
- * Stud-family usage roles in a wall — render as outline-only (no fill) so
- * the 41mm flange edge reads as a hairline, matching Detailer's wall
- * elevation convention (visible in the side-by-side compared 2026-05-09).
+ * True iff the stick is a stud-family member in a wall (everything that
+ * isn't a top/bottom plate). Render as outline-only with a C-section
+ * orientation marker — matches Detailer's wall elevation convention
+ * (verified side-by-side 2026-05-09).
  *
- * Plates (top/bottom/head/sill/nog) keep the filled rectangle look — they
- * read as substantial structural members in Detailer too.
+ * Detection: prefer `stick.type` (always populated by the codec — "plate"
+ * for top/bottom plates, "stud" for everything else: studs, nogs, braces,
+ * jackstuds, etc.). Falls back to `usage` for safety, but in practice
+ * `usage` is undefined after the synthesize → decode round-trip the HD1
+ * pipeline does (verified empirically against the LBW corpus).
+ *
+ * Plates keep the filled rectangle look — Detailer also draws plates as
+ * visible filled structural members and they don't get an orientation
+ * marker (their orientation is dictated by the wall lining).
  */
-function isWallStudUsage(usage: string | undefined): boolean {
-  const u = (usage ?? "").toLowerCase();
-  return u === "stud" || u === "trimstud" || u === "endstud" || u === "jackstud";
+function isWallStudStick(stick: RfyStick): boolean {
+  if (stick.type === "stud") return true;
+  if (stick.type === "plate") return false;
+  // Fallback if `type` is absent (older RFY shapes): use usage.
+  const u = (stick.usage ?? "").toLowerCase();
+  return u === "stud" || u === "trimstud" || u === "endstud" || u === "jackstud" ||
+         u === "nog" || u === "noggin" || u === "brace";
 }
 
 function drawFramePage(
@@ -480,7 +492,7 @@ function drawStick(
   //     rectangle. Detailer also draws plates as visible filled members.
   //   - Truss/floor plans → keep filled rectangle. The 89mm web IS in the
   //     elevation plane there, so the wider visual presence is correct.
-  const studOutlineOnly = wallStyle && isWallStudUsage(stick.usage);
+  const studOutlineOnly = wallStyle && isWallStudStick(stick);
   drawFilledPolygon(
     page,
     polyPts,
@@ -488,6 +500,15 @@ function drawStick(
     rgb(0.27, 0.27, 0.3),                             // darker grey outline
     0.5
   );
+
+  // C-section orientation marker (wall plans only — operator needs to know
+  // which way the open side of the C-channel faces when loading the F300i).
+  // Matches Detailer's elevation convention: a small bracket symbol drawn
+  // outside the start (lower) end of the stud, opening in the direction of
+  // the lip. Direction is derived from `stick.flipped`.
+  if (studOutlineOnly) {
+    drawCSectionMarker(page, m, stick.flipped, layout);
+  }
 
   // Stick label at midpoint.
   const labelMid = posAlongStick(m, m.length / 2);
@@ -708,6 +729,95 @@ function drawOverallDimensions(
 }
 
 // ---------- Utilities ----------
+
+/**
+ * Draw a small C-section orientation marker outside one end of a stud's
+ * midline. Matches Detailer's elevation convention: a bracket-shape
+ * symbol that tells the operator which way the open side of the
+ * C-channel faces (lip direction).
+ *
+ * Geometry:
+ *   - Web on one side (vertical line)
+ *   - Two flanges (horizontal lines)
+ *   - Open side (no line) = where the lip/return is
+ *   - `flipped=false` → opens RIGHT (lip on right, web on left of marker)
+ *   - `flipped=true`  → opens LEFT  (lip on left,  web on right of marker)
+ *
+ * Placed below the start end of the stick (following the start→end vector
+ * backwards) so it sits clear of the stick's outline and doesn't overlap
+ * tooling marks. Size is fixed in PDF points so the marker reads at any
+ * page scale (small frames don't get a microscopic symbol).
+ */
+function drawCSectionMarker(
+  page: PDFPage,
+  m: Midline,
+  flipped: boolean,
+  layout: PageLayout,
+): void {
+  const { s, ox, oy } = layout;
+
+  // Marker size in PDF points — fixed visual size regardless of frame scale.
+  const SIZE = 7;             // overall bracket height (web length)
+  const FLANGE = SIZE * 0.6;  // flange-arm length
+  const OFFSET_PT = 12;       // gap between stick end and marker centre
+
+  // Direction along the stick (start → end) and its perpendicular.
+  const dirX = Math.cos(m.angle);
+  const dirY = Math.sin(m.angle);
+
+  // Translate the start point to PDF coords, then step OFFSET_PT in the
+  // direction OPPOSITE to dir (i.e. away from the stick interior).
+  const startPt = {
+    x: ox + m.start.x * s - dirX * OFFSET_PT,
+    y: oy + m.start.y * s - dirY * OFFSET_PT,
+  };
+
+  // For a vertical stud, dir ≈ (0, 1) — perpendicular is (-1, 0). Flipped
+  // mirrors the marker around the stick's longitudinal axis. We draw the
+  // marker in stick-local space (web vertical, flanges horizontal) then
+  // rotate to match the stick angle so it stays oriented with the stud.
+  const sign = flipped ? -1 : 1;
+  const halfWeb = SIZE / 2;
+
+  // Bracket points in stick-LOCAL coords:
+  //   local x = ALONG stick (longitudinal — same as midline direction)
+  //   local y = ACROSS stick (perpendicular to midline)
+  // The web sits on local-y = -sign*halfWeb (the closed side); flanges
+  // run +sign*FLANGE in local-y from each end of the web.
+  const localPts: { x: number; y: number }[] = [
+    { x: -halfWeb, y: -sign * (FLANGE * 0) },  // (we'll redo below — clearer to spell out the 4 corners)
+  ];
+  // Actually simpler: 4-point polyline = top-flange-tip → web-top → web-bot → bot-flange-tip
+  // In local coords (along, across):
+  //   web-top   = (+halfWeb,  0)        — top of web (closer to stick)
+  //   web-bot   = (-halfWeb,  0)        — bottom of web (far from stick)
+  //   top-flange-tip = (+halfWeb, sign*FLANGE)  — flange opens in +sign direction
+  //   bot-flange-tip = (-halfWeb, sign*FLANGE)
+  const pts = [
+    { lx: +halfWeb, ly: sign * FLANGE },  // top-flange tip
+    { lx: +halfWeb, ly: 0 },              // web top
+    { lx: -halfWeb, ly: 0 },              // web bot
+    { lx: -halfWeb, ly: sign * FLANGE },  // bot-flange tip
+  ].map(({ lx, ly }) => {
+    // Rotate (lx, ly) into PDF coords using stick angle, then translate
+    // to startPt. local-x maps along (dirX, dirY); local-y maps along
+    // (-dirY, dirX) (90° CCW perpendicular).
+    return {
+      x: startPt.x + lx * dirX + ly * (-dirY),
+      y: startPt.y + lx * dirY + ly * dirX,
+    };
+  });
+
+  // Stroke the bracket (3 connected segments — top-flange, web, bot-flange).
+  for (let i = 0; i < pts.length - 1; i++) {
+    page.drawLine({
+      start: pts[i]!,
+      end: pts[i + 1]!,
+      thickness: 0.7,
+      color: rgb(0.15, 0.15, 0.15),
+    });
+  }
+}
 
 /**
  * Draw a filled+stroked polygon using raw PDF path operators.
