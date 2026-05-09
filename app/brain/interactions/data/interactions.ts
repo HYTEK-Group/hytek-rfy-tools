@@ -184,6 +184,40 @@ const ROT_HORIZONTAL_X_UP: [number, number, number] = eulerFromAxes(
   [0, 1, 0],
 );
 
+// ──────────────────────────────────────────────────────────────────
+// Bench-flat orientations (FrameCAD/HYTEK fabrication convention)
+// ──────────────────────────────────────────────────────────────────
+//
+// FrameCAD walls and trusses are FABRICATED bench-flat: every stick
+// lies with its web touching the bench and its flanges pointing UP
+// (out of the bench, toward the operator). When the 3D viewer shows
+// the assembly this way, all sticks share the same bench plane (the
+// world X-Y plane at Z=0 for the centreline) and all flanges go +Z.
+//
+// In this orientation:
+//   - Stick's web back surface at world Z = -lf/2 (the bench).
+//   - Stick's CL passes through world Z = 0 (lf/2 above the web back
+//     in the flange-open direction = world +Z).
+//   - Two intersecting sticks both have CLs in the Z=0 plane → their
+//     CLs meet at a single world (X, Y, 0) point.
+//
+// ROT_BENCH_X            (extrudes +X, flanges UP)  ← chord / plate running in X
+// ROT_BENCH_Y            (extrudes +Y, flanges UP)  ← stud / vertical web
+// rotForBenchAngle(θ)    (extrudes (cos θ, sin θ, 0), flanges UP)
+//                                                  ← angled brace / diagonal
+const ROT_BENCH_X: [number, number, number] = eulerFromAxes(
+  [1, 0, 0],
+  [0, 0, 1],
+);
+const ROT_BENCH_Y: [number, number, number] = eulerFromAxes(
+  [0, 1, 0],
+  [0, 0, 1],
+);
+function rotForBenchAngle(theta: number): [number, number, number] {
+  const ext: [number, number, number] = [Math.cos(theta), Math.sin(theta), 0];
+  return eulerFromAxes(ext, [0, 0, 1]);
+}
+
 export const INTERACTIONS: InteractionConfig[] = [
   // ──────────────────────────────────────────────────────────────────
   // A1 — T-junction (orthogonal): stud meets top plate
@@ -526,60 +560,71 @@ export const INTERACTIONS: InteractionConfig[] = [
 
   // ──────────────────────────────────────────────────────────────────
   // A5 — Truss diagonal web at chord (45°)
+  //   Bench-flat: chord and diagonal both lie web-on-bench (Z=-20.5),
+  //   flanges pointing UP (+Z). Both centrelines in the Z=0 plane.
+  //   Diagonal CL crosses chord CL at world (707, 707, 0).
   // ──────────────────────────────────────────────────────────────────
   {
     id: "A5",
     name: "A5 — Truss diagonal web at chord (45°)",
     description:
-      "A 45° diagonal truss web meeting a chord. The web has TrussChamfers at both ends and a Swage end-cap with elongated span (cos compensation) plus an InnerDimple. The chord gets the standard LipNotch + InnerDimple at the projected meeting point.",
+      "A 45° diagonal truss web meeting a chord, BENCH-FLAT (both sticks lie web-on-bench, flanges UP). Diagonal has TrussChamfers at both ends, plus a Swage + InnerDimple at the tip. The chord gets the LipNotch + InnerDimple at the CL–CL intersection point.",
     sticks: [
-      // Diagonal web — 45° from horizontal
-      // Note: rotForXYAngle uses flangeOpen = (0,0,-1), so flange tips
-      // are in world -Z. Offset by -lf/2 along that direction = (0,0,+20.5)
-      // so the centreline lies in the elevation (Z=0) plane.
-      // Length 971 so tip lands at chord's web inner face (chord web at
-      // Y=707, so chord CL at Y=686.5 → diagonal CL crosses at t=971).
-      // Was 1000 — that put tip BEYOND the chord centreline (at world
-      // Y=707, the chord's web back), clipping into the chord's web.
+      // Diagonal web — 45° in the bench plane (X-Y), flanges UP +Z.
+      // CL goes from world (0,0,0) to (707, 707, 0) for length 1000.
+      // Web back at Z=-20.5 → CL at Z=0 (offset by lf/2 along flange-open).
       {
         profile: PROFILE_70S41,
-        length: 971,
-        position: [0, 0, 20.5],
-        rotation: rotForXYAngle(Math.PI / 4),
+        length: 1000,
+        position: [0, 0, -20.5],
+        rotation: rotForBenchAngle(Math.PI / 4),
         label: "Diagonal web (W)",
         ops: [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
-          // Swage compresses the section that lives inside the chord's
-          // cavity. Chord flange tips at world Y=666 → diagonal CL crosses
-          // at t=942. So swage from 942 to 971 (the "inside-cavity" span).
-          { type: "Swage", spanStart: 942, spanEnd: 971 },
-          // Dimple at CL–CL intersection (the tip, at t=971).
-          { type: "InnerDimple", pos: 971 },
+          // Swage the last 55mm before tip — compresses the diagonal's
+          // flange depth so it clears the chord's lip turn-back where
+          // the diagonal crosses the chord's flange span.
+          { type: "Swage", spanStart: 945, spanEnd: 1000 },
+          // InnerDimple at the tip = CL–CL intersection.
+          { type: "InnerDimple", pos: 1000 },
         ],
       },
-      // Chord — horizontal, mouth opens DOWNWARD so the diagonal web's
-      // swaged tip nests inside the chord's cavity.
+      // Chord — horizontal along +X, bench-flat (web on Z=-20.5,
+      // flanges UP +Z, CL on Z=0). CL at world Y=707, length 2500
+      // centred on the meeting point (X=707) → start X=-543.
       {
         profile: PROFILE_70S41,
         length: 2500,
-        position: [-500, 707, 0], // 707 = 1000 × sin 45°
-        rotation: ROT_HORIZONTAL_X_DOWN,
+        position: [-543, 707, -20.5],
+        rotation: ROT_BENCH_X,
         label: "Chord",
         ops: [
-          // CL–CL intersection in world: (686.5, 686.5, 0).
-          // Chord-local z = 686.5 - (-500) = 1186.5.
-          // 50mm-wide LipNotch centred on 1186.5 → 1161.5..1211.5.
+          // Meeting point at chord-local z = 707 - (-543) = 1250.
+          // 50mm-wide LipNotch centred on 1250 → 1225..1275.
           {
             type: "LipNotch",
-            spanStart: 1161.5,
-            spanEnd: 1211.5,
+            spanStart: 1225,
+            spanEnd: 1275,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1186.5 },
+          { type: "InnerDimple", pos: 1250 },
         ],
       },
     ],
+    joints: [
+      // 1× #10g screw per side at the joint, at CL–CL intersection.
+      {
+        position: [707, 707, 0],
+        axis: [0, 0, 1],
+        spanAxis: [1, 0, 0],
+        halfThickness: 35,
+        screwsPerSide: 1,
+        label: "diagonal-to-chord",
+      },
+    ],
+    cameraTarget: [600, 600, 0],
+    cameraDistance: 1400,
   },
 
   // ──────────────────────────────────────────────────────────────────
