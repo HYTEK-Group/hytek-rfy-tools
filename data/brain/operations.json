@@ -1,0 +1,170 @@
+{
+  "entries": [
+    {
+      "name": "LipNotch",
+      "form": "spanned",
+      "description": "Rectangular cut through both lips of the C-section, leaving the web intact. Length 48 to 80 mm. The dominant operation at every cross-member joint; lets the crossing stick key into the lip.",
+      "whenFires": [
+        "End cap on every plate (T, B, Bh): fires at each end. Position starts at EndClearance from the end (4 mm on 70/75/78/89/90 mm; 5 mm on 104 mm). Span = 39 mm on 70/89 mm setups, otherwise setup-derived.",
+        "At every stud-to-plate crossing: fires on the plate at the crossing x-position, span 39 mm centred on the stud centreline.",
+        "At every nog-to-stud crossing: fires on the stud at the crossing y-position.",
+        "At door-head cripple (164 mm short nog): fires at both ends.",
+        "At every truss-web to chord crossing: fires on the chord at the crossing position.",
+        "Does not fire on standalone studs in the field, or on truss diagonal webs themselves (only on the chord they meet)."
+      ],
+      "why": "Every place a horizontal and vertical steel piece meet, the lip needs to be relieved so the perpendicular stick keys in cleanly."
+    },
+    {
+      "name": "InnerDimple",
+      "form": "point",
+      "description": "Locating dimple (small embossed cone) on the inner web face, used as a fastener target. Diameter ~10 mm.",
+      "whenFires": [
+        "End-anchored on every plate, stud, nog, header: fires at Fastener1 Y-offset (20.5 mm on 70/75/78/89/90 mm; 25.5 mm on 104 mm) from each end, on the inner web face.",
+        "At every LipNotch on a plate: fires alongside the LipNotch as a fastener target.",
+        "Mid-span on long studs: fires only at body crossings (nog crossing y-position). No mid-span fires in unobstructed studs.",
+        "On wall W-braces (usage='stud'): fires at 10 mm from each end (different from the universal 16.5 mm).",
+        "On truss W (usage='web'): fires at 16.5 mm from each end.",
+        "On door/window headers (paired): fires as PAIRS — two dimples per LipNotch crossing, at Fastener1 and at Fastener1 + 42 mm. Single-H frames get only the single dimple."
+      ],
+      "why": "Every fastener position needs a dimple to locate the screw before it cuts."
+    },
+    {
+      "name": "Swage",
+      "form": "spanned",
+      "description": "Web-stiffening crimp — a roll-formed concave fold in the web. 39 to 55 mm long. Caps the ends of studs, nogs, and braces; reinforces mid-span where extra stiffness is needed.",
+      "whenFires": [
+        "End cap on every stud (S, J): fires at the stud's end with the setup-derived offset (27.5 mm on standard 70/89 mm setups), span 39 mm.",
+        "End cap on every nog ≥168 mm: fires at each end with the same offset as studs.",
+        "Mid-span on full-height studs: replaces the InnerDimple at mid-span on standard studs. Note: ENDSTUD (end-of-panel) has LipNotch here instead of Swage.",
+        "End cap on every brace (W/R) stud-usage: angle-dependent end span = Span / cos(angle from vertical) + 8 · tan²(angle), capped at 200 mm.",
+        "Does not fire on plates (LipNotch + InnerDimple is the plate end-cap pattern), or on truss webs (different pattern)."
+      ],
+      "why": "Stud webs need stiffening at the ends to resist crushing under the plate's bearing."
+    },
+    {
+      "name": "Web",
+      "form": "point",
+      "description": "Round access hole in the web, 8 to 101 mm diameter depending on use. Includes slab-anchor bolt through-holes (8 mm), service penetrations (~34 mm), and large stiffener holes.",
+      "whenFires": [
+        "Ground-floor bottom plate slab anchors: fires at 8 mm from each end (slab-anchor through-hole).",
+        "Distributed on paired headers (H1/H3 + H2): fires at 89 mm from each end, evenly distributed inwards with max 300 mm spacing. Single-H frames get NO Web ops.",
+        "At centerline crossings on TB2B trusses: fires on each web at the pairwise crossing of two truss-webs."
+      ],
+      "why": "Structural connections that need a bolt through the web (slab anchor, paired-header bracket, truss-truss bolt)."
+    },
+    {
+      "name": "Bolt",
+      "form": "point",
+      "description": "Hole sized for a slab anchor or structural fastener — distinct from Web because of its position and pattern (typically two holes, ±62 mm offsets, on bottom plates only).",
+      "whenFires": [
+        "Bottom plate, ground floor only: fires at ±62 mm offsets from each Web-anchored point, two holes per cluster. Slab anchors.",
+        "Does not fire on any wall stud, plate above ground floor, header, or truss member."
+      ],
+      "why": "These are the actual hold-down fasteners that secure the frame to the slab."
+    },
+    {
+      "name": "Chamfer",
+      "form": "start_end",
+      "description": "Bevelled cut at the end of a stick, removing one corner. Used on diagonal braces and angled cripples to make the stick fit flush against its bearing.",
+      "whenFires": [
+        "End of every wall W-brace ≥28° from vertical: fires at the angled end.",
+        "End of every header H, 70 mm: fires at both ends (H trimmed 1 mm/end vs studs at 2 mm).",
+        "End of every Kb (cripple) — start only: fires at the lower end of vertical Kbs (where they sit on the plate). Upper end gets no Chamfer.",
+        "End of every Kb diagonal: depends on ChamferTolerance (4 mm on standard, 2 mm on B2B) — if true cut angle exceeds tolerance, Chamfer fires."
+      ],
+      "why": "The chamfer relieves the corner that would otherwise interfere with the bearing surface."
+    },
+    {
+      "name": "TrussChamfer",
+      "form": "start_end",
+      "description": "Larger end-bevel for truss members — different geometry from Chamfer. Tooling carries a 5-point curve specific to truss chord ends.",
+      "whenFires": [
+        "End of every truss-W (usage='web'), every truss-V: fires at both ends.",
+        "Does not fire on anything outside a truss frame."
+      ],
+      "why": "Truss webs need a more aggressive corner removal because the angles are sharper."
+    },
+    {
+      "name": "InnerNotch",
+      "form": "spanned",
+      "description": "Full rectangular cut through the web (deeper than LipNotch — actually penetrates the web), 39 to 48 mm long. Used at door-head cripples and short nogs where the crossing stick must pass entirely through.",
+      "whenFires": [
+        "At door-head cripple (164 mm short N): fires at both ends — full-web cut so the header's connecting bolt can pass through.",
+        "At raised-B sill (Bh) ends: fires at both ends — the sill is a half-height plate that has to fit between two trim studs.",
+        "At header H end caps (some configs): fires when H is paired and the flange-cut alone isn't enough.",
+        "Does not fire on standard nogs (LipNotch is enough) or standard plates."
+      ],
+      "why": "When a cross-member must pass entirely through a stick, only a web-deep notch will do."
+    },
+    {
+      "name": "InnerService",
+      "form": "point",
+      "description": "Service-hole variant of Web — Ø34 mm round hole at predictable positions on full-height studs for electrical conduit. Same tool as Web but rule-emitted for utility access.",
+      "whenFires": [
+        "Full-height wall studs (S): fires at 296 mm and 446 mm from one end (electrical conduit positions). Dynamic: which end is 'service end' depends on wall layout — set per-stud by the wall-service rule.",
+        "Does not fire on plates, headers, nogs, or truss members."
+      ],
+      "why": "Electrical and plumbing penetrations need predictable, code-compliant openings."
+    },
+    {
+      "name": "ScrewHoles",
+      "form": "point",
+      "description": "Small fastener pilot holes (Ø5 mm pattern) on truss chords and bottom-chord clusters. Used for connection plates between trusses.",
+      "whenFires": [
+        "Truss bottom-chord clusters (TB2B): fires at the chord-on-chord box-piece positions for connecting trusses to bottom-chord brackets.",
+        "Does not fire on anything outside truss frames."
+      ],
+      "why": "Inter-truss connection plates fasten into these pilot holes."
+    },
+    {
+      "name": "LeftFlange",
+      "form": "spanned",
+      "description": "Flange-mount cut on the left flange (rotation-aware). Optional tool, not all setups have it.",
+      "whenFires": [
+        "Reserved for future profile-specific tooling. Not yet used by any active rule."
+      ],
+      "why": "Future expansion."
+    },
+    {
+      "name": "RightFlange",
+      "form": "spanned",
+      "description": "Mirror of LeftFlange for the right flange.",
+      "whenFires": [
+        "Reserved for future profile-specific tooling. Not yet used by any active rule."
+      ],
+      "why": "Future expansion."
+    },
+    {
+      "name": "LeftPartialFlange",
+      "form": "spanned",
+      "description": "Reduced LeftFlange cut, partial-assembly tooling.",
+      "whenFires": [
+        "Reserved for future profile-specific tooling. Not yet used by any active rule."
+      ],
+      "why": "Future expansion."
+    },
+    {
+      "name": "RightPartialFlange",
+      "form": "spanned",
+      "description": "Mirror of LeftPartialFlange.",
+      "whenFires": [
+        "Reserved for future profile-specific tooling. Not yet used by any active rule."
+      ],
+      "why": "Future expansion."
+    }
+  ],
+  "roles": [
+    { "code": "S",  "name": "Stud",            "description": "Full-height vertical wall member. Most common stick." },
+    { "code": "J",  "name": "Jack stud",       "description": "Short vertical at door/window opening, head-to-sill or head-to-top." },
+    { "code": "T",  "name": "Top plate",       "description": "Continuous horizontal top of a wall panel. Member ID prefix 'Tp'." },
+    { "code": "B",  "name": "Bottom plate",    "description": "Continuous horizontal base of a wall panel. Slab-anchor bolts here. Member ID prefix 'Bp'." },
+    { "code": "Bh", "name": "Raised bottom plate", "description": "Rough-opening sill — a B-style horizontal at sill height (one flange-height above slab B)." },
+    { "code": "N",  "name": "Nog",             "description": "Short horizontal cross-member between studs (fire blocking, mid-height stiffener)." },
+    { "code": "H",  "name": "Header",          "description": "Horizontal opening-top member. Often paired (H1+H2 box header). Member ID prefix 'Hd'." },
+    { "code": "Kb", "name": "Cripple / king brace", "description": "Short vertical at header corners; can be vertical or angled." },
+    { "code": "W",  "name": "Web / brace",     "description": "Diagonal stiffener. Two distinct usages: truss web (in trusses) and wall brace (X-brace in wall panels)." },
+    { "code": "L",  "name": "Lintel / sill",   "description": "Horizontal opening-bottom member. 70 mm uses header pattern; 89 mm uses sill pattern. Member ID prefix 'Sl'." },
+    { "code": "R",  "name": "Ribbon / brace",  "description": "Secondary diagonal stiffener (non-truss). Member ID prefix 'Br'." },
+    { "code": "V",  "name": "Vertical web",    "description": "Truss vertical (FJ joist) — same operations as W with usage='web'." }
+  ]
+}
