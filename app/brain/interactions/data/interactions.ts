@@ -353,26 +353,32 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "A short cripple stud (Kb) sits between the slab/sole plate and the bottom of an H header. The Kb is chamfered at its lower end and end-capped (Swage + InnerDimple) at its upper end where it meets the header. The header gets a paired-dimple LipNotch — TWO dimples per cut, at Fastener1 and Fastener1+42mm — to register the Kb in both axes.",
     sticks: [
-      // Kb (cripple stud) — vertical, 400mm long
+      // Kb (cripple stud) — vertical, 398mm long so top tip sits 1.25mm
+      // below the header's web inner face (header web at Y=400, inner at
+      // 400-t≈399.25). Top 50mm (z=348-398) is swaged to fit inside.
       // Position offset by -lf/2 = -20.5 in world X so centreline at X=0.
       {
         profile: PROFILE_70S41,
-        length: 400,
+        length: 398,
         position: [-20.5, 0, 0],
         rotation: ROT_VERTICAL_Y,
         label: "Cripple (Kb)",
         ops: [
           { type: "Chamfer", end: "start" },
-          { type: "Swage", spanStart: 361, spanEnd: 400 },
-          { type: "InnerDimple", pos: 380 },
+          { type: "Swage", spanStart: 348, spanEnd: 398 },
+          { type: "InnerDimple", pos: 378 },
         ],
       },
-      // H header — horizontal, 2055mm long
+      // H header — horizontal, 2055mm long, mouth opens DOWNWARD
+      // so the cripple's swaged top end nests INSIDE the header's
+      // open cavity from below. (Was ROT_HORIZONTAL_X — mouth faced
+      // -Z into the page, so cripple just butted against header's
+      // flange edge instead of nesting inside.)
       {
         profile: PROFILE_70S41,
         length: 2055,
         position: [-1027, 400, 0],
-        rotation: ROT_HORIZONTAL_X,
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Header (H)",
         ops: [
           {
@@ -538,12 +544,14 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 980 },
         ],
       },
-      // Chord — horizontal, sits across the top of the web's tip
+      // Chord — horizontal, mouth opens DOWNWARD so the diagonal web's
+      // swaged tip nests inside the chord's cavity. (Was ROT_HORIZONTAL_X
+      // — same bug as A3.)
       {
         profile: PROFILE_70S41,
         length: 2500,
         position: [-500, 707, 0], // 707 = 1000 × sin 45°
-        rotation: ROT_HORIZONTAL_X,
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Chord",
         ops: [
           // Tip lands at world (707, 707) → chord position 707 + 500 = 1207
