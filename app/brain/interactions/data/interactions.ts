@@ -217,8 +217,9 @@ export const INTERACTIONS: InteractionConfig[] = [
         ops: [
           // Swage compresses the top 50mm so it fits inside plate cavity
           { type: "Swage", spanStart: 2348, spanEnd: 2398 },
-          // InnerDimple — locks stud into the plate's matching dimple
-          { type: "InnerDimple", pos: 2378 },
+          // Dimple at CL–CL intersection: stud-CL crosses plate-CL at
+          // world Y=2379.5 (plate web Y=2400 minus lf/2=20.5).
+          { type: "InnerDimple", pos: 2379.5 },
         ],
       },
       // Top plate — horizontal, mouth opens DOWNWARD so the stud nests
@@ -231,26 +232,22 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate (P)",
         ops: [
-          // LipNotch — cuts both lips of the plate over the stud's
-          // entry width (~45mm with clearance). Stud is at plate-local
-          // z=600 (world X=0).
+          // LipNotch centred on CL–CL intersection (plate-local z=600).
           {
             type: "LipNotch",
             spanStart: 575,
             spanEnd: 625,
             flangeSide: "both",
           },
-          // Dimple in plate's web aligns with stud's dimple for register
+          // Dimple at CL–CL intersection (plate-local z=600).
           { type: "InnerDimple", pos: 600 },
         ],
       },
     ],
     joints: [
-      // 1× #10g screw per side at the joint (2 total, front and back).
-      // Through-axis is world Z (the touching-flange direction).
-      // Half-thickness = plate web/2 = 35mm + plate flange thickness.
+      // 1× #10g screw per side at the joint, at CL–CL intersection (0, 2379.5, 0).
       {
-        position: [0, 2380, 0],
+        position: [0, 2379.5, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
@@ -295,15 +292,16 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Swage", spanStart: 1750, spanEnd: 1800 },
           // Chamfer at very end so the corner doesn't scrape plate web
           { type: "Chamfer", end: "end" },
-          // Dimple registers brace into plate's matching dimple
-          { type: "InnerDimple", pos: 1780 },
+          // Dimple at CL–CL intersection: brace-CL crosses plate-CL at
+          // world Y = 1561 - 20.5 = 1540.5; brace t at that Y =
+          // 1540.5 / sin60° = 1778.5.
+          { type: "InnerDimple", pos: 1778.5 },
         ],
       },
       // Plate — horizontal, mouth opens DOWNWARD. Plate's web positioned
       // just above brace's tip so the brace's swaged section nests fully
       // inside the cavity. Brace tip Y = 1800·sin60° = 1559.4. Place
-      // plate's web at Y = 1561. Cavity from Y = 1520 (lip-tip,
-      // notched open) to Y = 1560.25 (web inner face).
+      // plate's web at Y = 1561.
       {
         profile: PROFILE_70S41,
         length: 2400,
@@ -311,28 +309,24 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate (P)",
         ops: [
-          // Lipnotch centered where brace passes through. Brace's world
-          // X position at the lip-tip Y level (Y=1520) is z=1755 along
-          // brace, so world X = 1755·cos60° = 877. Plate-local z =
-          // 877-(-300) = 1177. Brace's flange depth at that level
-          // covers ~50mm of plate length, so span 1145-1210 = 65mm.
+          // CL–CL intersection in world: (1778.5·cos60°, 1540.5, 0) =
+          // (889.25, 1540.5, 0). Plate-local z = 889.25 - (-300) = 1189.25.
+          // 50mm-wide LipNotch centred on 1189.25 → 1164.25..1214.25.
           {
             type: "LipNotch",
-            spanStart: 1145,
-            spanEnd: 1210,
+            spanStart: 1164.25,
+            spanEnd: 1214.25,
             flangeSide: "both",
           },
-          // Dimple at the brace's tip projection on plate
-          { type: "InnerDimple", pos: 1200 },
+          // Dimple at CL–CL intersection.
+          { type: "InnerDimple", pos: 1189.25 },
         ],
       },
     ],
     joints: [
       {
-        // Joint centre — at brace's z=1775, inside plate cavity.
-        // World: 1775·cos60° = 887, 1775·sin60° = 1537. Inside cavity
-        // (Y=1520 to 1560.25).
-        position: [887, 1537, 0],
+        // Joint centre at CL–CL intersection: (889.25, 1540.5, 0).
+        position: [889.25, 1540.5, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
@@ -428,7 +422,9 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
           { type: "Swage", spanStart: 548, spanEnd: 598 },
-          { type: "InnerDimple", pos: 578 },
+          // Dimple at CL–CL intersection: web-CL crosses chord-CL at
+          // world Y = 600 - 20.5 = 579.5.
+          { type: "InnerDimple", pos: 579.5 },
         ],
       },
       // Chord — horizontal, mouth opens DOWNWARD so the web tip nests
@@ -452,8 +448,8 @@ export const INTERACTIONS: InteractionConfig[] = [
     ],
     joints: [
       {
-        // Joint centre — at the web's tip inside the chord cavity
-        position: [0, 580, 0],
+        // Joint centre at CL–CL intersection: (0, 579.5, 0).
+        position: [0, 579.5, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
@@ -488,7 +484,9 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
           { type: "Swage", spanStart: 548, spanEnd: 598 },
-          { type: "InnerDimple", pos: 578 },
+          // Dimple at CL–CL intersection: web-CL crosses chord-CL at
+          // world Y = 600 - 20.5 = 579.5.
+          { type: "InnerDimple", pos: 579.5 },
         ],
       },
       {
@@ -510,7 +508,8 @@ export const INTERACTIONS: InteractionConfig[] = [
     ],
     joints: [
       {
-        position: [0, 580, 0],
+        // Joint centre at CL–CL intersection: (0, 579.5, 0).
+        position: [0, 579.5, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
@@ -610,12 +609,11 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Chamfer", end: "end" },
           // Swage compresses brace's profile to fit inside plate cavity
           { type: "Swage", spanStart: 1750, spanEnd: 1800 },
-          { type: "InnerDimple", pos: 1780 },
+          // Dimple at CL–CL intersection (same calc as A2): pos 1778.5.
+          { type: "InnerDimple", pos: 1778.5 },
         ],
       },
-      // Top plate — horizontal, mouth opens DOWN. Plate's web at
-      // Y = 1561, just above brace tip Y = 1559.4. Cavity from Y =
-      // 1520 (lipnotch open) to Y = 1560.25 (web inner face).
+      // Top plate — horizontal, mouth opens DOWN. Plate's web at Y=1561.
       {
         profile: PROFILE_70S41,
         length: 2400,
@@ -623,19 +621,21 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate",
         ops: [
+          // LipNotch centred on CL–CL intersection (plate-local z=1189.25).
           {
             type: "LipNotch",
-            spanStart: 1145,
-            spanEnd: 1210,
+            spanStart: 1164.25,
+            spanEnd: 1214.25,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1200 },
+          { type: "InnerDimple", pos: 1189.25 },
         ],
       },
     ],
     joints: [
       {
-        position: [887, 1537, 0],
+        // Joint centre at CL–CL intersection: (889.25, 1540.5, 0).
+        position: [889.25, 1540.5, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
@@ -643,7 +643,7 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "wall-brace-to-plate",
       },
     ],
-    cameraTarget: [880, 1540, 0],
+    cameraTarget: [890, 1540, 0],
     cameraDistance: 420,
   },
 
