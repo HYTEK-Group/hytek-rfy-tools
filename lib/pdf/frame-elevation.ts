@@ -447,6 +447,7 @@ interface PageLayout {
 
 const MARGIN_PT = 24;            // ~8.5mm — page margin (Detailer is tighter than 36pt)
 const TOP_BOM_HEIGHT_PT = 64;    // 4-row BOM strip above the drawing area
+const LEGEND_STRIP_HEIGHT_PT = 18; // tooling-key strip below the BOM box, above the drawing area (Scott, 2026-05-09 — moved from bottom-right corner)
 const FOOTER_HEIGHT_PT = 60;     // 3-row footer (Joins+Quantity / Specs grid / Dwg block)
 const DIM_CHAIN_BOTTOM_PT = 55;  // height of the per-stud bottom dim-chain band — bumped from 36 to clear the C-marker band (Scott, 2026-05-09 N12 screenshot)
 const DIM_CHAIN_RIGHT_PT = 36;   // width of the per-feature right dim-chain band
@@ -538,7 +539,8 @@ function drawFramePage(
   const drawX0 = MARGIN_PT;
   const drawY0 = MARGIN_PT + FOOTER_HEIGHT_PT;
   const drawX1 = W - MARGIN_PT;
-  const drawY1 = H - MARGIN_PT - TOP_BOM_HEIGHT_PT;
+  // Drawing area top is below BOM strip + legend strip.
+  const drawY1 = H - MARGIN_PT - TOP_BOM_HEIGHT_PT - LEGEND_STRIP_HEIGHT_PT;
   const innerX0 = drawX0;
   const innerY0 = drawY0 + DIM_CHAIN_BOTTOM_PT;
   const innerX1 = drawX1 - DIM_CHAIN_RIGHT_PT;
@@ -732,12 +734,16 @@ function drawTopBomStrip(
   const row2 = `Assembly Weight   |   ${weight}kg   |   Working Sheet: ${planName}   |   M6 Screw   |   ${m6Count}`;
   page.drawText(row2, { x: x0 + 6, y: row2Y, size: 8, font, color: rgb(0, 0, 0) });
 
-  // ─ Row 3: Powered by + Diagonal ────────────────────────────────────────
+  // ─ Row 3: HYTEK branding + Diagonal ───────────────────────────────────
+  // HYTEK-branded only (Scott, 2026-05-09 — universal rule: NEVER use
+  // FrameCAD branding on any HYTEK output). The diagonal length is
+  // genuinely useful info for the operator (sanity-checks the assembled
+  // frame) so we keep it; the rest of the row is HYTEK-branded.
   const wMm = frame.length ?? 0;
   const hMm = frame.height ?? 0;
   const diagonal = Math.round(Math.hypot(wMm, hMm));
   page.drawText(
-    `Powered by FRAMECAD Structure (R)   |   Diagonal = ${diagonal}`,
+    `Powered by HYTEK   |   Diagonal = ${diagonal}`,
     { x: x0 + 6, y: row3Y, size: 8, font, color: rgb(0, 0, 0) },
   );
 
@@ -1291,14 +1297,13 @@ function drawDimChains(
     // CW rotation (-90°): pdf-lib's drawText origin is the baseline-left
     // of the first glyph. With degrees(-90) the text reads top-to-bottom
     // and extends DOWNWARD from origin (-y direction) — so labels sit
-    // entirely below yBaseline instead of extending UP into the frame
-    // (which the previous CCW rotation did, causing labels to overlap
-    // the bottom plate's outline). 7pt is small enough to read at A3
-    // and dense enough that ~22pt vertical extent fits in our 30pt band.
+    // entirely below yBaseline instead of extending UP into the frame.
+    // 10pt to match the right dim chain (Scott, 2026-05-09 — both chains
+    // same size and a bit bigger).
     page.drawText(String(Math.round(xMm)), {
-      x: xPt + 2,
+      x: xPt + 3,
       y: yBaseline - 5,
-      size: 7,
+      size: 10,
       font,
       color: rgb(0, 0, 0),
       rotate: degrees(-90),
@@ -1328,7 +1333,7 @@ function drawDimChains(
     page.drawText(String(Math.round(yMm)), {
       x: xLine + 5,
       y: yPt - 3,
-      size: 9,
+      size: 10,
       font,
       color: rgb(0, 0, 0),
     });
