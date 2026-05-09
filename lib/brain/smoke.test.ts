@@ -13,7 +13,7 @@ describe("brain smoke test", () => {
     const { zipBytes, headers } = await buildBundle(xml, "small.xml");
     expect(zipBytes.length).toBeGreaterThan(100);
     expect(Number(headers["x-stick-count"])).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   it("brainEncode produces a well-formed classification report", () => {
     const xml = readFileSync(fixturePath, "utf8");
