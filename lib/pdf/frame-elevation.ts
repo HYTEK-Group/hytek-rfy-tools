@@ -684,8 +684,55 @@ function drawFramePage(
   // computeWebOverrides docstring).
   const wallStyle = isWallFrame(planName, frame.name, opts.frameTypes);
   const webOverrides = wallStyle ? computeWebOverrides(frame, bb) : new Map<string, 1 | -1>();
+
+  // Boxed-pair detection (Scott, 2026-05-09 — back-to-back stud photo).
+  // Two C-section studs clipped together at the same X form a closed
+  // rectangular box. Their lips meet in the middle; webs face outward.
+  // The PDF should show ONE box marker (closed rectangle) for the pair,
+  // not two individual C-brackets pointing in opposite directions.
+  //
+  // Detection: vertical studs whose elevation crossX values are within
+  // BOX_TOL_MM of each other. Returns:
+  //   - boxedSet: stick.name → true if part of any boxed group (skip
+  //     individual C-markers for these)
+  //   - boxedGroups: array of groups (each group = array of studs at same X)
+  //     used after the per-stick draw loop to emit one box marker per group
+  type BoxedStud = { stick: RfyStick; m: Midline; crossX: number };
+  const boxedGroups: BoxedStud[][] = [];
+  const boxedSet = new Set<string>();
+  if (wallStyle) {
+    const BOX_TOL_MM = 50; // studs within ~one stud-width count as boxed
+    const sortedV: BoxedStud[] = [];
+    for (const stick of frame.sticks) {
+      const m = stickMidline(stick);
+      if (!m || !isStudStyleStick(m)) continue;
+      sortedV.push({ stick, m, crossX: (m.start.x + m.end.x) / 2 });
+    }
+    sortedV.sort((a, b) => a.crossX - b.crossX);
+    let i = 0;
+    while (i < sortedV.length) {
+      const group = [sortedV[i]!];
+      let j = i + 1;
+      while (j < sortedV.length && Math.abs(sortedV[j]!.crossX - sortedV[i]!.crossX) <= BOX_TOL_MM) {
+        group.push(sortedV[j]!);
+        j++;
+      }
+      if (group.length >= 2) {
+        boxedGroups.push(group);
+        for (const g of group) boxedSet.add(g.stick.name);
+      }
+      i = j;
+    }
+  }
+
   for (const stick of frame.sticks) {
-    drawStick(page, stick, layout, font, opts, wallStyle, webOverrides);
+    drawStick(page, stick, layout, font, opts, wallStyle, webOverrides, boxedSet);
+  }
+
+  // Draw one BOX marker per boxed group (after individual sticks so it
+  // sits cleanly below the bottom of the pair without being obscured).
+  for (const group of boxedGroups) {
+    drawBoxMarkerBelowPair(page, group, layout);
   }
 
   // C-section orientation: now drawn PER-STUD inside drawStick (a small
@@ -869,7 +916,8 @@ function drawStick(
   font: any,
   opts: Required<PdfOptions>,
   wallStyle: boolean,
-  webOverrides: Map<string, 1 | -1>
+  webOverrides: Map<string, 1 | -1>,
+  boxedSet: Set<string>
 ): void {
   const m = stickMidline(stick);
   if (!m) return;
@@ -957,9 +1005,12 @@ function drawStick(
     });
 
     // C-section orientation marker — small bracket below the bottom of
-    // the stud, opening toward the LIP (= away from the doubled web edge,
-    // toward the lighter / single-line edge above).
-    drawCMarkerBelowStud(page, m, lipSign, layout);
+    // the stud, opening toward the LIP. SKIP if this stud is part of a
+    // boxed pair (back-to-back) — the box marker is drawn once per pair
+    // by drawBoxMarkerBelowPair() after the per-stick loop.
+    if (!boxedSet.has(stick.name)) {
+      drawCMarkerBelowStud(page, m, lipSign, layout);
+    }
   }
 
   // Stick label — rotated 90° CCW for vertical sticks (place inside the
@@ -1730,6 +1781,66 @@ function drawCMarkerBelowStud(
       color: rgb(0, 0, 0),
     });
   }
+}
+
+/**
+ * Draw a BOX marker below a boxed-stud pair — a closed rectangle (4
+ * segments, no open mouth) replacing the per-stud C-bracket. Indicates
+ * that two C-sections are clipped back-to-back to form a sealed
+ * rectangular tube (Scott, 2026-05-09 photo of physical boxed-stud).
+ *
+ * The pair's lips meet in the middle; webs face outward on both sides.
+ * The closed-rectangle marker says "this assembly is sealed" — visually
+ * distinct from the open "[" / "]" bracket used for solo C-studs.
+ *
+ * Sized to span the combined width of the pair plus a small margin.
+ * Placed below the bottom of the studs (using min m.start.y of the pair).
+ */
+function drawBoxMarkerBelowPair(
+  page: PDFPage,
+  group: { stick: RfyStick; m: Midline; crossX: number }[],
+  layout: PageLayout,
+): void {
+  if (group.length < 2) return;
+  const { s, ox, oy } = layout;
+
+  // Find combined X span and lowest start y across the pair.
+  // Group elements have outlineCorners in elevation mm — use their xs.
+  let minXmm = Infinity, maxXmm = -Infinity, minYmm = Infinity;
+  for (const g of group) {
+    const cs = g.stick.outlineCorners;
+    if (!cs) continue;
+    for (const c of cs) {
+      if (c.x < minXmm) minXmm = c.x;
+      if (c.x > maxXmm) maxXmm = c.x;
+    }
+    if (g.m.start.y < minYmm) minYmm = g.m.start.y;
+  }
+  if (!isFinite(minXmm)) return;
+
+  // Marker box geometry in PDF pt — size matches the per-stud C-bracket
+  // tier (10pt offset, 14pt-ish height) so it visually substitutes.
+  const OFFSET_PT = 10;     // gap below the lowest stud start to the marker top
+  const HEIGHT_PT = 14;     // marker rectangle height
+  // Width spans the boxed pair's combined elevation width, in PDF pt.
+  const widthPt = Math.max((maxXmm - minXmm) * s, 6);
+
+  const cx = (ox + minXmm * s) + widthPt / 2;
+  const topY = oy + minYmm * s - OFFSET_PT;
+  const botY = topY - HEIGHT_PT;
+  const leftX = cx - widthPt / 2;
+  const rightX = cx + widthPt / 2;
+
+  // Closed rectangle — 4 segments, no open side. Hairline black to match
+  // the rest of the frame elevation aesthetic.
+  page.drawRectangle({
+    x: leftX,
+    y: botY,
+    width: rightX - leftX,
+    height: HEIGHT_PT,
+    borderColor: rgb(0, 0, 0),
+    borderWidth: 1.0,
+  });
 }
 
 function drawCJunctionMarkers(
