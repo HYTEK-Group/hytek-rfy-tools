@@ -1,0 +1,94 @@
+{
+  "entries": [
+    {
+      "name": "T-junction",
+      "description": "End-to-side meeting: stick A's end coordinate falls on stick B's centreline (within 1 mm tolerance).",
+      "participants": "Stud meeting top plate; stud meeting bottom plate; nog meeting stud; truss diagonal meeting chord.",
+      "emits": [
+        "On B (the receiving stick): LipNotch centred on A's centreline + InnerDimple at the LipNotch position.",
+        "On A (the entering stick): no extra ops at this end — its standard end-cap rule already handles it."
+      ],
+      "why": "The lip of B must be relieved so A keys in cleanly without binding; the dimple gives the connection screw a target."
+    },
+    {
+      "name": "X-crossing",
+      "description": "Two sticks' centreline projections intersect inside both bounding boxes.",
+      "participants": "Truss webs crossing each other (linear truss scissor joint); wall X-bracing in a brace bay; bottom-chord bolt cluster on a TB2B truss.",
+      "emits": [
+        "On the longer / structural primary stick: LipNotch + InnerDimple at the crossing point.",
+        "On the shorter / secondary stick: typically nothing — the primary's notch accommodates the secondary's pass-through."
+      ],
+      "why": "When one stick crosses another at angle, only one of them needs the relief — the one carrying the connection."
+    },
+    {
+      "name": "End-butt",
+      "description": "The end of one stick meets the end of another, both on the same line, with a small gap (≤30 mm).",
+      "participants": "Continuous plates split by a panel break; nog continuing across a stud (treated as two nogs after frame-context detection).",
+      "emits": [
+        "On both sticks: standard end-cap operation (e.g. Swage for studs, LipNotch for plates) at each end. No special joint-specific operation."
+      ],
+      "why": "End-butts are framing convenience, not structural connections — the standard end-caps suffice."
+    },
+    {
+      "name": "Lap",
+      "description": "Two sticks parallel within a tight angle threshold, with overlapping length, separated by less than one flange height (~41 mm).",
+      "participants": "Double-stud at panel join (pair at X and X+43); paired-header H1+H2 box header.",
+      "emits": [
+        "On both sticks at the overlap zone: Web @8 mm slab-anchor pattern (if at slab) or Bolt cluster (if structural connection).",
+        "Otherwise: nothing — passive lap, dealt with by adjacent structural connections."
+      ],
+      "why": "Laps are usually structural connection zones; the operation depends on what's being connected."
+    },
+    {
+      "name": "B2B partner pair",
+      "description": "Two studs at the same x-position (within 1 mm), in the same frame, mirrored. Detected as a B2B context.",
+      "participants": "TB2B truss chords; double-jamb at large openings.",
+      "emits": [
+        "Web @spacing on both studs: 7 holes spaced 447 mm, anchored 38 mm from each end.",
+        "All other operations standard per-stick."
+      ],
+      "why": "B2B pairs need additional fasteners at regular intervals because they share the load path."
+    },
+    {
+      "name": "Header-cripple (Kb meets H)",
+      "description": "A Kb's upper end coincides with a header's underside.",
+      "participants": "Every cripple at every door/window opening corner.",
+      "emits": [
+        "On H at the Kb's x-position: LipNotch + paired InnerDimple (the paired-dimple rule fires when the frame has paired headers).",
+        "On Kb's lower end: Chamfer @start (so it sits flat on the plate below).",
+        "On Kb's upper end: standard Swage + InnerDimple end-cap."
+      ],
+      "why": "The cripple is short and angled; it needs the chamfer to bear, and the header needs the notch + dimples for the cripple-to-header bolt."
+    },
+    {
+      "name": "Truss-vertical-at-chord",
+      "description": "A truss-W (vertical, usage='web') meets a horizontal chord. Detected as a truss interaction (frame-type check: 'truss' in plan name).",
+      "participants": "Every interior vertical web on a TIN linear truss.",
+      "emits": [
+        "On chord: LipNotch + InnerDimple at the W's centreline.",
+        "On W: TrussChamfer @start and TrussChamfer @end (truss webs always get truss-chamfer at both ends, irrespective of angle)."
+      ],
+      "why": "The truss-chamfer is the manufacturer-specified end-cut for truss webs; the chord notch is identical to the wall T-junction rule but flagged for truss processing."
+    },
+    {
+      "name": "Truss-diagonal-at-chord",
+      "description": "A truss-W meets a chord at an angle. Use line-intersection in the XZ plane to find the meeting point, project to chord y-level, convert to local position along the chord.",
+      "participants": "Every diagonal web on every truss.",
+      "emits": [
+        "On chord at the projected point: LipNotch + InnerDimple.",
+        "On W: TrussChamfer at both ends; Swage @end with span = 39 / cos(angle), capped at 200 mm."
+      ],
+      "why": "Diagonal webs need the same chord notch but their own end-spans depend on cut angle."
+    },
+    {
+      "name": "Wall-W-at-plate",
+      "description": "A wall-W brace stick (not a truss web — wall-frame, not truss-frame) hits a plate at angle ≥28° from vertical.",
+      "participants": "The X-brace in a wall brace bay (typically L1/L3 first and last bays).",
+      "emits": [
+        "On plate at the meeting point: LipNotch + InnerDimple.",
+        "On W at this end: Chamfer (wall-style chamfer, not TrussChamfer) + Swage 41 mm + InnerDimple @10 mm."
+      ],
+      "why": "Wall braces use a different chamfer geometry from truss webs; the angle threshold prevents the chamfer firing on near-vertical W's that don't need it."
+    }
+  ]
+}
