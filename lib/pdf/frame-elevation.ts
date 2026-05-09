@@ -392,50 +392,107 @@ function computeWebOverrides(
   const PARTIAL_THRESHOLD = 0.85; // member spanning <85% of width = opening
   const JAMB_TOL_MM = 30;          // jamb stud within 30mm of horizontal endpoint
 
-  // Partition horizontals into "top headers" (define opening BETWEEN their
-  // endpoints — door/window) vs "bottom partial plates" (define wall body
-  // BETWEEN their endpoints — step / beam pocket / split bottom plate).
-  // The void direction inverts between the two cases.
+  // Two distinct opening-detection passes:
   //
-  // Scott, 2026-05-09 (frame N45 screenshot): "each stick web must face
-  // the red arrow" + a circled stud showed the inversion bug — partial
-  // bottom plates were being treated as top headers.
+  //   1. TOP HEADERS (door/window) — any partial-width horizontal in the
+  //      upper region of the frame defines an opening BETWEEN its X
+  //      endpoints. Jambs at those endpoints have web facing INTO the
+  //      opening.
   //
-  // Detection: a horizontal's vertical position relative to the bbox.
-  //   In the upper third → header  (opening BETWEEN endpoints)
-  //   In the lower third → partial bottom (wall body BETWEEN endpoints)
-  //   Middle third (= nog/mid-stiffener) → not a jamb-defining member, skip
+  //   2. BOTTOM-PLATE GAPS — only fire if there's a REAL GAP between
+  //      adjacent bottom plates (or between a bottom plate and a frame
+  //      edge). A stepped bottom (B1+B2+B3 with overlaps, like HG260002
+  //      N45) has NO real gaps, so its endpoints are NOT jambs — they're
+  //      just plate joints. The previous "every partial bottom = jamb"
+  //      rule was a false positive that mis-tagged S5/S8 in N45 (Scott,
+  //      2026-05-09 red-circle screenshot).
+  //
+  // For both passes, the rule is "lips face the wall body, web faces the
+  // void". Direction is determined by which side of the stud has the void.
   const frameH = bbox.maxY - bbox.minY;
+
+  // ── Pass 1: TOP HEADERS ────────────────────────────────────────────────
   for (const h of horizontals) {
     const hLen = Math.abs(h.m.end.x - h.m.start.x);
     if (hLen / frameWidth >= PARTIAL_THRESHOLD) continue;
 
     const cy = (h.m.start.y + h.m.end.y) / 2;
     const heightFracFromBottom = (cy - bbox.minY) / frameH;
-    const isTopHeader    = heightFracFromBottom > 0.66;
-    const isBottomPartial = heightFracFromBottom < 0.33;
-    if (!isTopHeader && !isBottomPartial) continue; // mid-height nogs don't define jambs
+    if (heightFracFromBottom < 0.6) continue; // not a header
 
     const hMin = Math.min(h.m.start.x, h.m.end.x);
     const hMax = Math.max(h.m.start.x, h.m.end.x);
 
-    // Unified rule: "Lips face the wall body. Web faces the void."
-    //   TOP HEADER: void is BETWEEN endpoints (the opening cavity)
-    //     stud at hMin → web faces RIGHT (into opening) → lipSign=+1
-    //     stud at hMax → web faces LEFT  (into opening) → lipSign=-1
-    //   BOTTOM PARTIAL: void is OUTSIDE endpoints (gap to either side)
-    //     stud at hMin → web faces LEFT  (into the void on its left)  → lipSign=-1
-    //     stud at hMax → web faces RIGHT (into the void on its right) → lipSign=+1
     for (const v of verticals) {
-      if (overrides.has(v.stick.name)) continue; // frame-end takes priority
+      if (overrides.has(v.stick.name)) continue;
       const matchMin = Math.abs(v.crossX - hMin) < JAMB_TOL_MM;
       const matchMax = Math.abs(v.crossX - hMax) < JAMB_TOL_MM;
       if (!matchMin && !matchMax) continue;
-      if (isTopHeader) {
-        overrides.set(v.stick.name, matchMin ? +1 : -1);
-      } else {
-        // bottom partial — sign inverted vs header
-        overrides.set(v.stick.name, matchMin ? -1 : +1);
+      // Header opening is BETWEEN endpoints. Jamb at hMin → web faces RIGHT
+      // (into opening) → lipSign=+1. Jamb at hMax → lipSign=-1.
+      overrides.set(v.stick.name, matchMin ? +1 : -1);
+    }
+  }
+
+  // ── Pass 2: BOTTOM-PLATE GAPS ──────────────────────────────────────────
+  // Identify the bottom plates: horizontals with heightFrac < 0.05 (very
+  // bottom of frame). Tighter threshold than the previous 0.33 — N2 nog
+  // at heightFrac=0.12 was being mis-classified.
+  const BOTTOM_PLATE_HEIGHT_FRAC = 0.05;
+  const bottomPlates = horizontals
+    .filter(h => {
+      const cy = (h.m.start.y + h.m.end.y) / 2;
+      return (cy - bbox.minY) / frameH < BOTTOM_PLATE_HEIGHT_FRAC;
+    })
+    .map(h => ({
+      hMin: Math.min(h.m.start.x, h.m.end.x),
+      hMax: Math.max(h.m.start.x, h.m.end.x),
+    }))
+    .sort((a, b) => a.hMin - b.hMin);
+
+  // Walk the X axis and find REAL gaps. A gap exists when:
+  //   (a) the first bottom plate's hMin > bbox.minX + GAP_TOL  (left edge gap)
+  //   (b) two adjacent bottom plates DON'T overlap (next.hMin > prev.hMax + GAP_TOL)
+  //   (c) the last bottom plate's hMax < bbox.maxX - GAP_TOL  (right edge gap)
+  // Each gap creates two jamb edges (left and right of the gap).
+  const GAP_TOL_MM = 30;
+  type Gap = { leftBoundaryX: number | null; rightBoundaryX: number | null };
+  const gaps: Gap[] = [];
+  if (bottomPlates.length === 0) {
+    // No bottom plates at all — entire bottom is a void. Edge studs already handled.
+  } else {
+    // (a) left edge
+    if (bottomPlates[0]!.hMin > bbox.minX + GAP_TOL_MM) {
+      gaps.push({ leftBoundaryX: null, rightBoundaryX: bottomPlates[0]!.hMin });
+    }
+    // (b) between adjacent bottom plates
+    for (let i = 0; i < bottomPlates.length - 1; i++) {
+      const prev = bottomPlates[i]!;
+      const next = bottomPlates[i + 1]!;
+      if (next.hMin > prev.hMax + GAP_TOL_MM) {
+        gaps.push({ leftBoundaryX: prev.hMax, rightBoundaryX: next.hMin });
+      }
+    }
+    // (c) right edge
+    const last = bottomPlates[bottomPlates.length - 1]!;
+    if (last.hMax < bbox.maxX - GAP_TOL_MM) {
+      gaps.push({ leftBoundaryX: last.hMax, rightBoundaryX: null });
+    }
+  }
+
+  // Tag jambs at gap boundaries.
+  // A stud at the LEFT side of a gap (matching gap.leftBoundaryX): the gap
+  // is on its RIGHT, wall body on its LEFT → web faces RIGHT (into gap)
+  // → lipSign=+1.
+  // A stud at the RIGHT side of a gap (matching gap.rightBoundaryX): gap
+  // on LEFT, wall body on RIGHT → web faces LEFT → lipSign=-1.
+  for (const gap of gaps) {
+    for (const v of verticals) {
+      if (overrides.has(v.stick.name)) continue;
+      if (gap.leftBoundaryX !== null && Math.abs(v.crossX - gap.leftBoundaryX) < JAMB_TOL_MM) {
+        overrides.set(v.stick.name, +1);
+      } else if (gap.rightBoundaryX !== null && Math.abs(v.crossX - gap.rightBoundaryX) < JAMB_TOL_MM) {
+        overrides.set(v.stick.name, -1);
       }
     }
   }
