@@ -392,32 +392,50 @@ function computeWebOverrides(
   const PARTIAL_THRESHOLD = 0.85; // member spanning <85% of width = opening
   const JAMB_TOL_MM = 30;          // jamb stud within 30mm of horizontal endpoint
 
+  // Partition horizontals into "top headers" (define opening BETWEEN their
+  // endpoints — door/window) vs "bottom partial plates" (define wall body
+  // BETWEEN their endpoints — step / beam pocket / split bottom plate).
+  // The void direction inverts between the two cases.
+  //
+  // Scott, 2026-05-09 (frame N45 screenshot): "each stick web must face
+  // the red arrow" + a circled stud showed the inversion bug — partial
+  // bottom plates were being treated as top headers.
+  //
+  // Detection: a horizontal's vertical position relative to the bbox.
+  //   In the upper third → header  (opening BETWEEN endpoints)
+  //   In the lower third → partial bottom (wall body BETWEEN endpoints)
+  //   Middle third (= nog/mid-stiffener) → not a jamb-defining member, skip
+  const frameH = bbox.maxY - bbox.minY;
   for (const h of horizontals) {
     const hLen = Math.abs(h.m.end.x - h.m.start.x);
     if (hLen / frameWidth >= PARTIAL_THRESHOLD) continue;
 
+    const cy = (h.m.start.y + h.m.end.y) / 2;
+    const heightFracFromBottom = (cy - bbox.minY) / frameH;
+    const isTopHeader    = heightFracFromBottom > 0.66;
+    const isBottomPartial = heightFracFromBottom < 0.33;
+    if (!isTopHeader && !isBottomPartial) continue; // mid-height nogs don't define jambs
+
     const hMin = Math.min(h.m.start.x, h.m.end.x);
     const hMax = Math.max(h.m.start.x, h.m.end.x);
 
-    // Structural rule for opening jambs (Scott, 2026-05-09 — important
-    // correction to the prior pass): the JAMB stud's WEB faces INTO the
-    // opening, LIPS face AWAY from the opening (toward the wall body).
-    // Stated as a unified rule for ALL stud-position overrides:
-    //   "Lips face the wall body. Web faces away from the wall body."
-    // For end studs, away-from-body = the corner / wall edge.
-    // For jambs, away-from-body = into the opening (door/window cavity).
+    // Unified rule: "Lips face the wall body. Web faces the void."
+    //   TOP HEADER: void is BETWEEN endpoints (the opening cavity)
+    //     stud at hMin → web faces RIGHT (into opening) → lipSign=+1
+    //     stud at hMax → web faces LEFT  (into opening) → lipSign=-1
+    //   BOTTOM PARTIAL: void is OUTSIDE endpoints (gap to either side)
+    //     stud at hMin → web faces LEFT  (into the void on its left)  → lipSign=-1
+    //     stud at hMax → web faces RIGHT (into the void on its right) → lipSign=+1
     for (const v of verticals) {
       if (overrides.has(v.stick.name)) continue; // frame-end takes priority
-      if (Math.abs(v.crossX - hMin) < JAMB_TOL_MM) {
-        // LEFT jamb (stud at hMin = left edge of opening): opening is on
-        // its RIGHT side, wall body on its LEFT. Web faces RIGHT (into
-        // opening) → lipSign=+1 (lips on +perp = LEFT = wall body).
-        overrides.set(v.stick.name, +1);
-      } else if (Math.abs(v.crossX - hMax) < JAMB_TOL_MM) {
-        // RIGHT jamb: opening on its LEFT, wall body on its RIGHT. Web
-        // faces LEFT (into opening) → lipSign=-1 (lips on -perp = RIGHT
-        // = wall body).
-        overrides.set(v.stick.name, -1);
+      const matchMin = Math.abs(v.crossX - hMin) < JAMB_TOL_MM;
+      const matchMax = Math.abs(v.crossX - hMax) < JAMB_TOL_MM;
+      if (!matchMin && !matchMax) continue;
+      if (isTopHeader) {
+        overrides.set(v.stick.name, matchMin ? +1 : -1);
+      } else {
+        // bottom partial — sign inverted vs header
+        overrides.set(v.stick.name, matchMin ? -1 : +1);
       }
     }
   }
