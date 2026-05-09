@@ -237,6 +237,21 @@ export default function Page() {
         <ConverterCard mode="brain-encode" />
       </div>
 
+      <h3 className="text-xs uppercase tracking-wider text-yellow-400 mt-10 mb-3">Stick Interactions Gallery</h3>
+      <a
+        href="/brain/interactions"
+        className="block rounded-xl border border-zinc-700 bg-zinc-900/50 hover:border-yellow-400 hover:bg-zinc-900 p-5 transition-colors"
+      >
+        <h4 className="text-lg font-semibold text-yellow-400 mb-1">/brain/interactions — every way two C-section sticks come together</h4>
+        <p className="text-sm text-zinc-400">
+          18 distinct stick-interaction scenes rendered as real 3D extruded
+          steel — T-junctions, truss webs, B2B partner pairs, nested splices,
+          slab anchors, paired headers — with the actual tool operations
+          (LipNotch, Swage, InnerDimple, Chamfer, Web, Bolt, ScrewHoles) cut
+          and embossed into the geometry.
+        </p>
+      </a>
+
       <h3 className="text-xs uppercase tracking-wider text-yellow-400 mt-10 mb-3">Forge — Operator Review</h3>
       <a
         href="/forge/review"
