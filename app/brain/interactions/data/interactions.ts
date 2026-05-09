@@ -733,11 +733,16 @@ export const INTERACTIONS: InteractionConfig[] = [
     // we drop screws at 5 representative heights — visualisation, not
     // a complete fastener set.
     joints: [
+      // halfThickness=1.5 puts each screw HEAD just outside the touching
+      // lip at world x=±1.5; the 22mm shank extends INWARD into the
+      // OTHER stud. For the partner-pair connection, screws on both
+      // sides at the same Y height visually approximate the alternating
+      // pattern from FC-W3.
       {
         position: [0, 200, 0],
         axis: [1, 0, 0],
         spanAxis: [0, 1, 0],
-        halfThickness: 30,
+        halfThickness: 1.5,
         screwsPerSide: 1,
         label: "B2B partner-pair screw 1",
       },
@@ -745,7 +750,7 @@ export const INTERACTIONS: InteractionConfig[] = [
         position: [0, 700, 0],
         axis: [1, 0, 0],
         spanAxis: [0, 1, 0],
-        halfThickness: 30,
+        halfThickness: 1.5,
         screwsPerSide: 1,
         label: "B2B partner-pair screw 2",
       },
@@ -753,7 +758,7 @@ export const INTERACTIONS: InteractionConfig[] = [
         position: [0, 1200, 0],
         axis: [1, 0, 0],
         spanAxis: [0, 1, 0],
-        halfThickness: 30,
+        halfThickness: 1.5,
         screwsPerSide: 1,
         label: "B2B partner-pair screw 3",
       },
@@ -761,7 +766,7 @@ export const INTERACTIONS: InteractionConfig[] = [
         position: [0, 1700, 0],
         axis: [1, 0, 0],
         spanAxis: [0, 1, 0],
-        halfThickness: 30,
+        halfThickness: 1.5,
         screwsPerSide: 1,
         label: "B2B partner-pair screw 4",
       },
@@ -769,7 +774,7 @@ export const INTERACTIONS: InteractionConfig[] = [
         position: [0, 2200, 0],
         axis: [1, 0, 0],
         spanAxis: [0, 1, 0],
-        halfThickness: 30,
+        halfThickness: 1.5,
         screwsPerSide: 1,
         label: "B2B partner-pair screw 5",
       },
