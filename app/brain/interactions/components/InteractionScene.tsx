@@ -141,6 +141,17 @@ export function InteractionScene({ config }: InteractionSceneProps) {
           intensity={0.35}
         />
 
+        {/* Subtle ground plane below the scene gives the user a reference
+            for "down". Lays flat well below the lowest stick. */}
+        <mesh
+          position={[target[0], target[1] - distance * 0.55, target[2]]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          receiveShadow
+        >
+          <planeGeometry args={[distance * 4, distance * 4]} />
+          <meshStandardMaterial color="#0a0a0a" roughness={1} metalness={0} />
+        </mesh>
+
         {/* The sticks. */}
         {config.sticks.map((stick, i) => (
           <Stick3DOps key={i} config={stick} />

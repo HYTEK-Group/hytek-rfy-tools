@@ -95,13 +95,17 @@ export function buildProfileShape(
   }
 
   // For LipNotch: drop the lip on the affected flange. The flange end
-  // becomes a flat termination instead of an inward turn.
+  // becomes a flat termination instead of an inward turn (lip).
+  // Reality: a LipNotch is a V-shaped cut into the lip on each side of
+  // the stud crossing point. We approximate it by removing the lip
+  // turn-back entirely along the span — the flange end becomes a clean
+  // flat edge at the lip tip. Web stays at full height.
   const points: Point2[] = [];
   points.push({ x: webX, y: yBot });
   points.push({ x: rf, y: yBot });
 
   if (options.dropBottomLip) {
-    // No lip — just go up the inside of the flange directly.
+    // Flange end is flat — go from outer corner directly to inner.
     points.push({ x: rf, y: yBot + t });
     points.push({ x: webX + t, y: yBot + t });
   } else {
