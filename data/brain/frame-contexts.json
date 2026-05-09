@@ -76,7 +76,7 @@
       ],
       "operations": [
         "All truss-Ws get TrussChamfer at both ends (per Truss-vertical-at-chord and Truss-diagonal-at-chord interactions).",
-        "Centerline crossings of webs (where two W's meet between chords) get a 3-hole bolt-cluster pattern.",
+        "Centerline crossings of webs (where two W's meet between chords) follow the X-crossing interaction (LipNotch + InnerDimple at the crossing point on the primary stick).",
         "Bottom chords get reduced operation set vs top chords (no service holes, simplified)."
       ]
     },
@@ -88,7 +88,7 @@
         "Box pieces between chord pairs."
       ],
       "operations": [
-        "Centerline crossings get Web @pt instead of just InnerDimple.",
+        "Centerline crossings get Web @pt (Ø8 mm through-hole on each web) instead of the LipNotch + InnerDimple of the standard X-crossing interaction.",
         "Box pieces get ScrewHoles clusters.",
         "Header/chord cap-stacks fire."
       ]
@@ -100,7 +100,7 @@
         "Top chord, bottom chord, intermediate verticals, end blocking pieces (Bx)."
       ],
       "operations": [
-        "Top/bottom plates get Chamfer + InnerDimple @10 instead of standard Swage at end caps (the RP-specific rule).",
+        "Top/bottom plates get Chamfer + InnerDimple @10 at end caps instead of the standard LipNotch + InnerDimple (the RP-specific rule).",
         "Studs get LipNotch 56..101 + InnerDimple @78.5 at end caps."
       ]
     }

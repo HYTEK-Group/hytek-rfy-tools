@@ -3,7 +3,7 @@
     {
       "name": "LipNotch",
       "form": "spanned",
-      "description": "Rectangular cut through both lips of the C-section, leaving the web intact. Length 48 to 80 mm. The dominant operation at every cross-member joint; lets the crossing stick key into the lip.",
+      "description": "Rectangular cut through both lips of the C-section, leaving the web intact. Length 48 to 101 mm (most common 48..80 mm; RP-panel studs use the wider 56..101 range). The dominant operation at every cross-member joint; lets the crossing stick key into the lip.",
       "whenFires": [
         "End cap on every plate (T, B, Bh): fires at each end. Position starts at EndClearance from the end (4 mm on 70/75/78/89/90 mm; 5 mm on 104 mm). Span = 39 mm on 70/89 mm setups, otherwise setup-derived.",
         "At every stud-to-plate crossing: fires on the plate at the crossing x-position, span 39 mm centred on the stud centreline.",
@@ -24,7 +24,8 @@
         "Mid-span on long studs: fires only at body crossings (nog crossing y-position). No mid-span fires in unobstructed studs.",
         "On wall W-braces (usage='stud'): fires at 10 mm from each end (different from the universal 16.5 mm).",
         "On truss W (usage='web'): fires at 16.5 mm from each end.",
-        "On door/window headers (paired): fires as PAIRS — two dimples per LipNotch crossing, at Fastener1 and at Fastener1 + 42 mm. Single-H frames get only the single dimple."
+        "On door/window headers (paired): fires as PAIRS — two dimples per LipNotch crossing, at Fastener1 and at Fastener1 + 42 mm. Single-H frames get only the single dimple.",
+        "On RP-panel studs at end caps: fires at 78.5 mm from the end (paired with the wider RP LipNotch 56..101)."
       ],
       "why": "Every fastener position needs a dimple to locate the screw before it cuts."
     },
@@ -48,6 +49,7 @@
       "whenFires": [
         "Ground-floor bottom plate slab anchors: fires at 8 mm from each end (slab-anchor through-hole).",
         "Distributed on paired headers (H1/H3 + H2): fires at 89 mm from each end, evenly distributed inwards with max 300 mm spacing. Single-H frames get NO Web ops.",
+        "On B2B partner-pair studs (two studs at the same x-position in the same frame): 7 holes spaced 447 mm, anchored 38 mm from each end.",
         "At centerline crossings on TB2B trusses: fires on each web at the pairwise crossing of two truss-webs."
       ],
       "why": "Structural connections that need a bolt through the web (slab anchor, paired-header bracket, truss-truss bolt)."

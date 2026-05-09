@@ -34,7 +34,7 @@
       "description": "Two sticks parallel within a tight angle threshold, with overlapping length, separated by less than one flange height (~41 mm).",
       "participants": "Double-stud at panel join (pair at X and X+43); paired-header H1+H2 box header.",
       "emits": [
-        "On both sticks at the overlap zone: Web @8 mm slab-anchor pattern (if at slab) or Bolt cluster (if structural connection).",
+        "On both sticks at the overlap zone: Web @8 mm slab-anchor pattern when at slab; otherwise no joint-specific operation (paired-header laps get standard Web stiffener distribution per Catalogue A).",
         "Otherwise: nothing — passive lap, dealt with by adjacent structural connections."
       ],
       "why": "Laps are usually structural connection zones; the operation depends on what's being connected."
@@ -52,7 +52,7 @@
     {
       "name": "Header-cripple (Kb meets H)",
       "description": "A Kb's upper end coincides with a header's underside.",
-      "participants": "Every cripple at every door/window opening corner.",
+      "participants": "Every cripple meeting a header from below — head-side corners of door/window openings.",
       "emits": [
         "On H at the Kb's x-position: LipNotch + paired InnerDimple (the paired-dimple rule fires when the frame has paired headers).",
         "On Kb's lower end: Chamfer @start (so it sits flat on the plate below).",
