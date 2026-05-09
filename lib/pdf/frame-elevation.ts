@@ -448,7 +448,7 @@ interface PageLayout {
 const MARGIN_PT = 24;            // ~8.5mm — page margin (Detailer is tighter than 36pt)
 const TOP_BOM_HEIGHT_PT = 64;    // 4-row BOM strip above the drawing area
 const FOOTER_HEIGHT_PT = 60;     // 3-row footer (Joins+Quantity / Specs grid / Dwg block)
-const DIM_CHAIN_BOTTOM_PT = 36;  // height of the per-stud bottom dim-chain band
+const DIM_CHAIN_BOTTOM_PT = 55;  // height of the per-stud bottom dim-chain band — bumped from 36 to clear the C-marker band (Scott, 2026-05-09 N12 screenshot)
 const DIM_CHAIN_RIGHT_PT = 36;   // width of the per-feature right dim-chain band
 
 /**
@@ -1236,8 +1236,16 @@ function drawDimChains(
     }
   }
 
-  // Bottom dim chain — line + ticks + rotated labels.
-  const yBaseline = oy + bb.minY * s - 12;
+  // Bottom dim chain — pushed DOWN to clear the C-marker band above
+  // (Scott, 2026-05-09 screenshot of frame N12: C-markers + rotated
+  // labels were stacking in the same y range below the frame).
+  // New layout below the frame's bottom:
+  //   Y_BB - 5  to Y_BB - 15 → C-marker band (size 10, offset 10)
+  //   Y_BB - 15 to Y_BB - 22 → gap (7pt clear)
+  //   Y_BB - 22                → dim baseline (was -12)
+  //   Y_BB - 19 to Y_BB - 25 → tick range (±3 around baseline)
+  //   Y_BB - 26 to Y_BB - 48 → label band (CW-rotated, extends DOWN)
+  const yBaseline = oy + bb.minY * s - 22;
   const xL = ox + bb.minX * s;
   const xR = ox + bb.maxX * s;
   page.drawLine({
@@ -1247,6 +1255,13 @@ function drawDimChains(
     color: rgb(0, 0, 0),
   });
   const sortedX = [...verticalCrossX, bb.maxX - bb.minX].filter((v, i, a) => a.indexOf(v) === i).sort((a, b) => a - b);
+  // Clash detection between adjacent labels — when two stud positions
+  // are closer than MIN_LABEL_GAP_PT in pdf coords, suppress the second
+  // one's label (keep the tick so the position is still visible). At
+  // 7pt font with CW rotation, each label is ~9pt wide; 14pt gap leaves
+  // visible whitespace between them.
+  const MIN_LABEL_GAP_PT = 14;
+  let lastLabelXPt = -Infinity;
   for (const xMm of sortedX) {
     const xPt = ox + (bb.minX + xMm) * s;
     page.drawLine({
@@ -1255,17 +1270,24 @@ function drawDimChains(
       thickness: 0.3,
       color: rgb(0, 0, 0),
     });
-    // Rotated 90° label below the tick. pdf-lib rotates around the text
-    // origin (bottom-left of glyph), so for a CCW-90 rotation we offset
-    // the y to land below the tick. Size 9 (Scott, 2026-05-09 — was 6,
-    // illegible at typical print scale).
+    // Skip label if too close to the previous (clash prevention) — the
+    // tick is still drawn so the operator can see the X position.
+    if (xPt - lastLabelXPt < MIN_LABEL_GAP_PT) continue;
+    lastLabelXPt = xPt;
+    // CW rotation (-90°): pdf-lib's drawText origin is the baseline-left
+    // of the first glyph. With degrees(-90) the text reads top-to-bottom
+    // and extends DOWNWARD from origin (-y direction) — so labels sit
+    // entirely below yBaseline instead of extending UP into the frame
+    // (which the previous CCW rotation did, causing labels to overlap
+    // the bottom plate's outline). 7pt is small enough to read at A3
+    // and dense enough that ~22pt vertical extent fits in our 30pt band.
     page.drawText(String(Math.round(xMm)), {
-      x: xPt + 3,
+      x: xPt + 2,
       y: yBaseline - 5,
-      size: 9,
+      size: 7,
       font,
       color: rgb(0, 0, 0),
-      rotate: degrees(90),
+      rotate: degrees(-90),
     });
   }
 
@@ -1552,9 +1574,12 @@ function drawCMarkerBelowStud(
 ): void {
   const { s, ox, oy } = layout;
 
-  const SIZE = 14;            // bracket "height" along stick axis (pt)
+  // Smaller + tighter than the previous (size 14, offset 18) to fit in the
+  // band between the stud bottom and the dim chain without clashing with
+  // rotated dim labels (Scott, 2026-05-09 screenshot of frame N12).
+  const SIZE = 10;            // bracket "height" along stick axis (pt) — was 14
   const FLANGE = SIZE * 0.6;  // bracket "width" perpendicular to stick (pt)
-  const OFFSET_PT = 18;       // gap between stick start and marker centre
+  const OFFSET_PT = 10;       // gap between stick start and marker centre — was 18
 
   const dirX = Math.cos(m.angle);
   const dirY = Math.sin(m.angle);
