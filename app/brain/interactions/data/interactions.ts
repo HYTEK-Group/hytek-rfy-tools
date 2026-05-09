@@ -366,7 +366,9 @@ export const INTERACTIONS: InteractionConfig[] = [
         ops: [
           { type: "Chamfer", end: "start" },
           { type: "Swage", spanStart: 348, spanEnd: 398 },
-          { type: "InnerDimple", pos: 378 },
+          // Dimple at CL–CL intersection: cripple-CL = X=0, header-CL = Y=379.5
+          // → dimple at pos = 379.5 along cripple's length axis.
+          { type: "InnerDimple", pos: 379.5 },
         ],
       },
       // H header — horizontal, 2055mm long, mouth opens DOWNWARD
@@ -381,14 +383,19 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Header (H)",
         ops: [
+          // LipNotch centred on CL–CL intersection: cripple-CL crosses
+          // header at world X=0 → header-local z = 0 - (-1027) = 1027.
+          // 60mm-wide notch centred on 1027 → 997..1057.
           {
             type: "LipNotch",
-            spanStart: 1007,
-            spanEnd: 1067,
+            spanStart: 997,
+            spanEnd: 1057,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1015 },
-          { type: "InnerDimple", pos: 1057 }, // 42mm offset (paired-dimple rule)
+          // Paired dimples symmetric about the CL–CL intersection (1027),
+          // 42mm apart → 1006 and 1048. Per FrameCAD paired-header rule.
+          { type: "InnerDimple", pos: 1006 },
+          { type: "InnerDimple", pos: 1048 },
         ],
       },
     ],
@@ -531,22 +538,29 @@ export const INTERACTIONS: InteractionConfig[] = [
       // Note: rotForXYAngle uses flangeOpen = (0,0,-1), so flange tips
       // are in world -Z. Offset by -lf/2 along that direction = (0,0,+20.5)
       // so the centreline lies in the elevation (Z=0) plane.
+      // Length 971 so tip lands at chord's web inner face (chord web at
+      // Y=707, so chord CL at Y=686.5 → diagonal CL crosses at t=971).
+      // Was 1000 — that put tip BEYOND the chord centreline (at world
+      // Y=707, the chord's web back), clipping into the chord's web.
       {
         profile: PROFILE_70S41,
-        length: 1000,
+        length: 971,
         position: [0, 0, 20.5],
         rotation: rotForXYAngle(Math.PI / 4),
         label: "Diagonal web (W)",
         ops: [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
-          { type: "Swage", spanStart: 945, spanEnd: 1000 },
-          { type: "InnerDimple", pos: 980 },
+          // Swage compresses the section that lives inside the chord's
+          // cavity. Chord flange tips at world Y=666 → diagonal CL crosses
+          // at t=942. So swage from 942 to 971 (the "inside-cavity" span).
+          { type: "Swage", spanStart: 942, spanEnd: 971 },
+          // Dimple at CL–CL intersection (the tip, at t=971).
+          { type: "InnerDimple", pos: 971 },
         ],
       },
       // Chord — horizontal, mouth opens DOWNWARD so the diagonal web's
-      // swaged tip nests inside the chord's cavity. (Was ROT_HORIZONTAL_X
-      // — same bug as A3.)
+      // swaged tip nests inside the chord's cavity.
       {
         profile: PROFILE_70S41,
         length: 2500,
@@ -554,14 +568,16 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Chord",
         ops: [
-          // Tip lands at world (707, 707) → chord position 707 + 500 = 1207
+          // CL–CL intersection in world: (686.5, 686.5, 0).
+          // Chord-local z = 686.5 - (-500) = 1186.5.
+          // 50mm-wide LipNotch centred on 1186.5 → 1161.5..1211.5.
           {
             type: "LipNotch",
-            spanStart: 1180,
-            spanEnd: 1240,
+            spanStart: 1161.5,
+            spanEnd: 1211.5,
             flangeSide: "both",
           },
-          { type: "InnerDimple", pos: 1207 },
+          { type: "InnerDimple", pos: 1186.5 },
         ],
       },
     ],
