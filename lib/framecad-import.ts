@@ -325,6 +325,49 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
       if (!frameSetup) frameSetup = getDefaultMachineSetup();
       const endClearance = frameSetup.endClearance;  // mm — plate trim at each end
 
+      // Pre-pass: collect plates + studs for per-end nog trim classification.
+      // Detailer's nog trim depends on which feature each nog endpoint abuts:
+      //   - flush plate corner (<1mm) → 4mm trim
+      //   - pre-trimmed near plate corner (1-5mm) → 1mm trim
+      //   - small-flange stud face (≤19mm from stud centerline) → 1mm trim
+      //   - large-flange stud face (>19, ≤25mm from centerline) → 4mm trim
+      //   - no nearby anchor → 1mm (historical default)
+      // Verified 2026-05-09 across 26 sample nogs in HG260044 (LBW + NLBW)
+      // and 12 sample nogs in HG260001. Replaces flat 1mm/end which left
+      // ~85 InnerDimple ops drifting +3mm/+6mm vs Detailer. Mirrors logic
+      // in hytek-rfy-codec/scripts/diff-vs-detailer.mjs (Agent ID, same date).
+      const platesWorldNog: Array<{ start: Vec3; end: Vec3 }> = [];
+      const studsWorldNog: Array<{ x: number; y: number }> = [];
+      for (const sn of frameNode.stick ?? []) {
+        const u = String(sn["@_usage"] ?? "").toLowerCase();
+        const ps = parseTriple(String(sn.start ?? "0,0,0"));
+        const pe = parseTriple(String(sn.end ?? "0,0,0"));
+        if (u === "topplate" || u === "bottomplate") {
+          platesWorldNog.push({ start: ps, end: pe });
+        } else if (u.includes("stud")) {
+          studsWorldNog.push({ x: ps.x, y: ps.y });
+        }
+      }
+      function nogEndTrim(pt: Vec3): number {
+        let minPlate = Infinity;
+        for (const pl of platesWorldNog) {
+          const da = Math.hypot(pt.x - pl.start.x, pt.y - pl.start.y);
+          const db = Math.hypot(pt.x - pl.end.x, pt.y - pl.end.y);
+          if (da < minPlate) minPlate = da;
+          if (db < minPlate) minPlate = db;
+        }
+        if (minPlate < 1.0) return 4.0;
+        if (minPlate <= 5.0) return 1.0;
+        let minStud = Infinity;
+        for (const st of studsWorldNog) {
+          const d = Math.hypot(pt.x - st.x, pt.y - st.y);
+          if (d < minStud) minStud = d;
+        }
+        if (minStud <= 19.0) return 1.0;
+        if (minStud <= 25.0) return 4.0;
+        return 1.0;
+      }
+
       for (const stickNode of frameNode.stick ?? []) {
         const profileAttrs = (stickNode.profile && (stickNode.profile.$ ?? stickNode.profile)) ?? {};
         const profile = {
@@ -461,7 +504,9 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         // hytek-rfy-codec/scripts/diff-vs-detailer.mjs for diff-harness parity.
         const isSill = usageLower === "sill";
         const studTrim = (isFullStud || isJoistWeb) ? 2.0 : 0;
-        const nogTrim = isNog ? 1.0 : 0;
+        // Nog trim is now per-end (see nogEndTrim helper above). 0 here keeps
+        // the legacy code path inert for nogs; we apply asymmetric trim below.
+        const nogTrim = 0;
         const sillTrim = isSill ? 1.0 : 0;
         const trimAmount = studTrim || nogTrim || sillTrim;
         void isHeader;
@@ -480,6 +525,27 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
               y: end.y - uy * trimAmount,
               z: end.z - uz * trimAmount,
             };
+          }
+        }
+        if (isNog) {
+          const tStart = nogEndTrim(start);
+          const tEnd = nogEndTrim(end);
+          if (tStart > 0 || tEnd > 0) {
+            const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
+            const len = Math.sqrt(dx*dx + dy*dy + dz*dz);
+            if (len > tStart + tEnd + 1) {
+              const ux = dx / len, uy = dy / len, uz = dz / len;
+              start = {
+                x: start.x + ux * tStart,
+                y: start.y + uy * tStart,
+                z: start.z + uz * tStart,
+              };
+              end = {
+                x: end.x - ux * tEnd,
+                y: end.y - uy * tEnd,
+                z: end.z - uz * tEnd,
+              };
+            }
           }
         }
 
