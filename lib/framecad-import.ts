@@ -503,7 +503,25 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         // like headers. Same fix mirrored in
         // hytek-rfy-codec/scripts/diff-vs-detailer.mjs for diff-harness parity.
         const isSill = usageLower === "sill";
-        const studTrim = (isFullStud || isJoistWeb) ? 2.0 : 0;
+        // Stud trim: full-height studs get 2mm/end (4mm total), but SHORT
+        // studs in LBW plans (cripples above headers / between H plates)
+        // get only 1.5mm/end (3mm total). Verified 2026-05-09 (Agent LBW3)
+        // by mining ref-vs-raw stud lengths across HG260001 PK4/PK5 LBW,
+        // HG260044 GF-LBW, HG260023 PK6 LBW + PK3 LBW 89.075:
+        //   long S studs (>=2000mm): 4mm trim (uniform across corpora)
+        //   short S studs (<2000mm) in LBW plans: 3mm trim (uniform)
+        //   short S studs in NLBW plans: mixed 4mm/3mm — keep 4mm default
+        // The 1mm reduction closes ~7-10 cripple-stud Swage+Dimple drift
+        // pairs per LBW plan (from current -2/-2 drift to within tolerance).
+        // Long studs and non-LBW short studs unaffected (still 4mm).
+        // Computed length below before final trim selection.
+        const isLBWPlan = /-LBW-/i.test(plan.name);
+        const dxRaw0 = end.x - start.x, dyRaw0 = end.y - start.y, dzRaw0 = end.z - start.z;
+        const rawLen = Math.sqrt(dxRaw0*dxRaw0 + dyRaw0*dyRaw0 + dzRaw0*dzRaw0);
+        const isShortLBWStud = isFullStud && isLBWPlan && rawLen < 2000;
+        const studTrim = isShortLBWStud
+          ? 1.5
+          : ((isFullStud || isJoistWeb) ? 2.0 : 0);
         // Nog trim is now per-end (see nogEndTrim helper above). 0 here keeps
         // the legacy code path inert for nogs; we apply asymmetric trim below.
         const nogTrim = 0;
