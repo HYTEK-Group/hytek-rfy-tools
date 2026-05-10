@@ -57,6 +57,11 @@ interface RawStick {
   end: Vec3;
   profile: { web: number; l_flange: number; r_flange: number; l_lip: number; r_lip: number; shape: string };
   flipped: boolean;
+  /** Raw XML <flipped> value, BEFORE the isDiagonalBrace override (which
+   *  forces flipped=false on W/Kb sticks to match Detailer's legacy wall-rule
+   *  output). The TB2B simplifier reads this for sloped-web arc-direction
+   *  reversal (Agent T9, 2026-05-11). */
+  xmlFlipped: boolean;
 }
 
 interface RawFrame {
@@ -599,6 +604,7 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
           end,
           profile,
           flipped,
+          xmlFlipped: inputFlipped,
         };
         frame.sticks.push(stick);
       }
@@ -785,6 +791,7 @@ export function framecadImportToParsedProject(xmlText: string): ParsedProject {
           start: stick.start,
           end: stick.end,
           flipped: stick.flipped,
+          xmlFlipped: stick.xmlFlipped,
           profile: {
             web: stick.profile.web,
             lFlange: stick.profile.l_flange,
