@@ -325,6 +325,41 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
       if (!frameSetup) frameSetup = getDefaultMachineSetup();
       const endClearance = frameSetup.endClearance;  // mm — plate trim at each end
 
+      // RP T-plate peak detection (Agent RP3, 2026-05-09).
+      // Two T-plates are "peak-joined" when one of their endpoints is within
+      // 30mm of the other's endpoint. Used by the RP T-plate no-trim gate
+      // to keep horizontal apex stiffeners (which DO get the 4mm/end trim)
+      // distinct from horizontal T-plates that meet a sloped neighbour at
+      // the apex (which DON'T get trimmed). Mirrors the same logic in
+      // hytek-rfy-codec/scripts/diff-vs-detailer.mjs.
+      const isRpPlanForPeak = /(?:^|-)RP(?:-|$|\d)/i.test(plan.name);
+      const tPlatesWorldRp: Array<{ name: string; start: Vec3; end: Vec3 }> = [];
+      if (isRpPlanForPeak) {
+        for (const sn of frameNode.stick ?? []) {
+          const u = String(sn["@_usage"] ?? "").toLowerCase();
+          const n = String(sn["@_name"] ?? "");
+          if (u !== "topplate" || !/^T\d/.test(n)) continue;
+          tPlatesWorldRp.push({
+            name: n,
+            start: parseTriple(String(sn.start ?? "0,0,0")),
+            end: parseTriple(String(sn.end ?? "0,0,0")),
+          });
+        }
+      }
+      function tplateMeetsPeakRp(stickName: string, start: Vec3, end: Vec3): boolean {
+        if (!isRpPlanForPeak) return false;
+        const TOL = 30;
+        for (const t of tPlatesWorldRp) {
+          if (t.name === stickName) continue;
+          const ee = Math.hypot(end.x - t.end.x, end.y - t.end.y, end.z - t.end.z);
+          const es = Math.hypot(end.x - t.start.x, end.y - t.start.y, end.z - t.start.z);
+          const se = Math.hypot(start.x - t.end.x, start.y - t.end.y, start.z - t.end.z);
+          const ss = Math.hypot(start.x - t.start.x, start.y - t.start.y, start.z - t.start.z);
+          if (ee < TOL || es < TOL || se < TOL || ss < TOL) return true;
+        }
+        return false;
+      }
+
       for (const stickNode of frameNode.stick ?? []) {
         const profileAttrs = (stickNode.profile && (stickNode.profile.$ ?? stickNode.profile)) ?? {};
         const profile = {
@@ -376,10 +411,32 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         //  hytek-rfy-codec/scripts/diff-vs-detailer.mjs lines 259-262.)
         const isLINPlanForTrim = /-LIN-/i.test(plan.name);
         const isTB2BPlanForTrim = /-TB2B-/i.test(plan.name);
+        const isRpPlanForTrim = /(?:^|-)RP(?:-|$|\d)/i.test(plan.name);
         const isTrussChordOnSpecialPlan =
           (isLINPlanForTrim || isTB2BPlanForTrim) &&
           (usageLower === "topchord" || usageLower === "bottomchord");
-        const isFullWidthPlate = !isTrussChordOnSpecialPlan && (
+        // RP top-plate no-trim (Agent RP3, 2026-05-09).
+        // Detailer's reference plate length on RP TopPlate sticks is
+        // essentially the raw XML centerline length (mean delta refLen-rawLen
+        // = +1.5mm across ~45 T-sticks in HG260044 + HG260001 GF-RP), not
+        // the 8mm-trimmed length we currently apply via EndClearance.
+        //
+        // SCOPE: SLOPED T-plates (|Δz| > 5mm) OR horizontal T-plates that
+        // meet another T-plate at one of their endpoints (a "peak" join —
+        // e.g. HG260044 R4/T1 horizontal at z=4206 meeting T2 sloped down).
+        // STANDALONE horizontal RP T-plates (e.g. HG260044 R7/T2 — apex
+        // stiffener with no T-plate neighbours) DO get the standard 4mm/end
+        // trim. Verified vs both HG260044 + HG260001 GF-RP corpora.
+        //
+        // Bottom plates on RP frames keep the 4mm/end trim. Mirrors the
+        // same gate in hytek-rfy-codec/scripts/diff-vs-detailer.mjs.
+        const stickIsSloped = Math.abs(end.z - start.z) > 5;
+        const stickMeetsPeakRp = isRpPlanForTrim && usageLower === "topplate"
+          && /^T\d/.test(stickName)
+          && tplateMeetsPeakRp(stickName, start, end);
+        const isRpNoTrimTopPlate = isRpPlanForTrim && usageLower === "topplate"
+          && (stickIsSloped || stickMeetsPeakRp);
+        const isFullWidthPlate = !isTrussChordOnSpecialPlan && !isRpNoTrimTopPlate && (
           usageLower === "topplate" || usageLower === "bottomplate"
           || usageLower === "topchord" || usageLower === "bottomchord"
         );
