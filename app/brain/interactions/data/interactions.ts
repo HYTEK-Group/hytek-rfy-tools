@@ -218,6 +218,15 @@ function rotForBenchAngle(theta: number): [number, number, number] {
   return eulerFromAxes(ext, [0, 0, 1]);
 }
 
+// "Inverted bench": web sits ABOVE the bench plane (Z=+lf/2), mouth opens
+// DOWN (-Z). Used for the upper half of a boxed-member pair where two
+// C-sections face each other mouth-to-mouth to form a closed rectangle
+// (the parent chord uses ROT_BENCH_X, the Box piece uses ROT_BENCH_X_INV).
+const ROT_BENCH_X_INV: [number, number, number] = eulerFromAxes(
+  [1, 0, 0],
+  [0, 0, -1],
+);
+
 export const INTERACTIONS: InteractionConfig[] = [
   // ──────────────────────────────────────────────────────────────────
   // A1 — T-junction (orthogonal): stud meets top plate
@@ -621,6 +630,83 @@ export const INTERACTIONS: InteractionConfig[] = [
         halfThickness: 35,
         screwsPerSide: 1,
         label: "diagonal-to-chord",
+      },
+    ],
+    cameraTarget: [600, 600, 0],
+    cameraDistance: 1400,
+  },
+
+  // ──────────────────────────────────────────────────────────────────
+  // A5L — Linear-truss diagonal web at chord (89×41 LIN-only variant)
+  //   Same physical layout as A5 but uses HYTEK's Linear-truss simplifier
+  //   output instead of the FrameCAD-baseline LipNotch+Swage+InnerDimple
+  //   pattern. The 4-layer gate fires (frame.type === "Truss" + plan
+  //   /-LIN-/i + every stick 89×41 LC 0.75 + has chord+web), the
+  //   centreline-intersection rule rewrites the joint:
+  //
+  //     • 3× M6 BOLT HOLES at 17 mm pitch on the WEB of EACH stick at
+  //       the CL–CL crossing (web-to-web back-to-back contact at the
+  //       joint location).
+  //     • NO LipNotch on chord. NO Swage on diagonal. NO InnerDimple.
+  //       Those FrameCAD outputs are stripped/replaced by the BOLT
+  //       HOLES rule for linear-truss web-to-chord crossings.
+  //     • TrussChamfer at both ends of the diagonal stays from the
+  //       FrameCAD baseline (the simplifier doesn't touch chamfers).
+  //
+  //   Strict isolation: NEVER fires on walls, floors, non-LIN trusses,
+  //   non-89×41 designs. Walls / floors etc. use the regular A5 with
+  //   LipNotch + Swage + InnerDimple.
+  // ──────────────────────────────────────────────────────────────────
+  {
+    id: "A5L",
+    name: "A5L — Linear-truss diagonal web at chord (89×41)",
+    description:
+      "HYTEK Linear-truss variant of A5. Bench-flat 45° diagonal meets a chord on an 89×41 LC truss whose plan name contains '-LIN-'. The simplifier's centreline-intersection rule fires: 3× M6 BOLT HOLES at 17 mm pitch through the WEB of EACH stick at the CL–CL crossing point. NO LipNotch / NO Swage / NO InnerDimple at the joint — they're stripped/replaced by the BOLT HOLES rule. TrussChamfer at the diagonal's ends remains from the FrameCAD baseline. Strictly isolated to LIN trusses on 89×41 LC 0.75 — never fires elsewhere.",
+    sticks: [
+      // Diagonal web — 45°, bench-flat (web back at Z=-20.5, flanges
+      // UP +Z, CL on Z=0). CL goes from (0,0,0) to (707, 707, 0).
+      {
+        profile: PROFILE_89S41,
+        length: 1000,
+        position: [0, 0, -20.5],
+        rotation: rotForBenchAngle(Math.PI / 4),
+        label: "Diagonal web (W) — 89×41",
+        ops: [
+          { type: "TrussChamfer", end: "start" },
+          { type: "TrussChamfer", end: "end" },
+          // 3× M6 BOLT HOLES at the CL–CL crossing on the diagonal.
+          // pos = 1000 (the tip = CL crossing), pattern = 17mm pitch
+          // along the diagonal's length axis.
+          { type: "ScrewHoles", pos: 1000, pattern: [-17, 0, 17] },
+        ],
+      },
+      // Chord — bench-flat along +X. CL at world Y=707, length 2500
+      // centred on the meeting point (X=707) → start X=-543.
+      {
+        profile: PROFILE_89S41,
+        length: 2500,
+        position: [-543, 707, -20.5],
+        rotation: ROT_BENCH_X,
+        label: "Chord — 89×41",
+        ops: [
+          // Same 3× M6 BOLT HOLES pattern at the CL–CL crossing on the
+          // chord. Chord-local pos = 707 - (-543) = 1250.
+          { type: "ScrewHoles", pos: 1250, pattern: [-17, 0, 17] },
+        ],
+      },
+    ],
+    joints: [
+      // 3× M6 self-drilling per side at the CL–CL crossing, distributed
+      // along the chord's length axis with 17 mm pitch. Driven through
+      // back-to-back web contact between diagonal and chord.
+      {
+        position: [707, 707, 0],
+        axis: [0, 0, 1],
+        spanAxis: [1, 0, 0],
+        halfThickness: 44.5, // 89mm web depth ÷ 2
+        screwsPerSide: 3,
+        screwSpacing: 17,
+        label: "linear-truss web-to-chord (3× M6 @ 17mm)",
       },
     ],
     cameraTarget: [600, 600, 0],
@@ -1217,5 +1303,110 @@ export const INTERACTIONS: InteractionConfig[] = [
         ],
       },
     ],
+  },
+
+  // ──────────────────────────────────────────────────────────────────
+  // D4 — Linear-truss boxed chord segment (Box piece + parent chord)
+  //   A high-load segment of a Linear-truss chord can be "boxed" by
+  //   nesting a second 89×41 C-section MOUTH-TO-MOUTH with the parent,
+  //   forming a closed rectangular tube. ~3-4× the section modulus,
+  //   much higher buckling/torsion resistance. The Box piece is
+  //   SHORTER than the parent — only spans the high-moment zone.
+  //   A single chord can have multiple Box zones along its length
+  //   (e.g. B1 (Box1) + B1 (Box2) on one chord).
+  //
+  //   Geometry in bench-flat:
+  //     Parent chord: web on bench (Z=-20.5), flanges UP +Z, mouth UP.
+  //     Box piece:    web above (Z=+20.5), flanges DOWN -Z, mouth DOWN.
+  //     They meet flange-to-flange at world Y = ±44.5 (89mm web ÷ 2),
+  //     forming a closed tube from Z=-20.5 to Z=+20.5.
+  //
+  //   Registration + fastening:
+  //     • Box's flanges have OUTWARD-pressed dimples; parent's flanges
+  //       have INWARD-pressed dimples. The bumps interlock at the
+  //       flange-to-flange seam (operator measures nothing — the
+  //       dimples self-align the slide-in).
+  //     • A 10g-16mm flathead screw is driven through every paired
+  //       dimple. Countersunk so the head sits flush with the flange
+  //       face. Screw passes through Box flange (0.75) + parent flange
+  //       (0.75) = 1.5 mm steel grip.
+  //
+  //   Spacing rule (canonical 2026-05-10):
+  //     • First / last dimple = 15 mm from each end of the Box piece
+  //     • Maximum gap between adjacent dimples = 900 mm
+  //
+  //   Both pieces (Box AND parent) get matching dimples at the same
+  //   world positions — paired across the seam.
+  //
+  //   Strict isolation: only fires on LIN trusses + 89×41 LC 0.75 +
+  //   chord+web members. The wall B2B partner pair (D2) is GEOMETRICALLY
+  //   similar (also flange-on-flange) but uses a different fastener
+  //   pattern (Web @8 slab anchors, alternating screws per FC-W3).
+  // ──────────────────────────────────────────────────────────────────
+  {
+    id: "D4",
+    name: "D4 — Linear-truss boxed chord segment",
+    description:
+      "Two 89×41 C-sections nested mouth-to-mouth form a closed-tube boxed member, used on high-load segments of a Linear-truss chord. Parent chord runs full length; Box piece spans only the high-moment zone (here 2000mm centred on a 4000mm parent). Registered + fastened via paired flange dimples — outward-pressed on Box, inward-pressed on parent — with a 10g-16mm flathead through each pair. Spacing: 15mm from each Box end, max 900mm between adjacent. ~3-4× the single-C section modulus. Strict isolation: LIN trusses + 89×41 LC 0.75 only.",
+    sticks: [
+      // Parent chord — bench-flat along +X. Web on bench (Z=-20.5),
+      // flanges UP +Z, mouth UP. Length 4000, CL spans X = -2000 to +2000.
+      {
+        profile: PROFILE_89S41,
+        length: 4000,
+        position: [-2000, 0, -20.5],
+        rotation: ROT_BENCH_X,
+        label: "Parent chord (B1) — full length, mouth UP",
+        tint: "#9ca3af",
+        ops: [
+          // (Future: matching paired dimples on flanges along the Box
+          // overlap zone. Joint markers below show the screw positions.)
+        ],
+      },
+      // Box piece — bench-flat along +X but INVERTED (web above, mouth
+      // DOWN) so it nests mouth-to-mouth with the parent. Web back at
+      // Z=+20.5 (above bench), flanges going DOWN to Z=-20.5 (parent's
+      // web level). 2000 mm long, centred over the parent's mid-span.
+      {
+        profile: PROFILE_89S41,
+        length: 2000,
+        position: [-1000, 0, 20.5],
+        rotation: ROT_BENCH_X_INV,
+        label: "Box piece (B1 Box1) — 2000mm, mouth DOWN",
+        tint: "#facc15",
+        ops: [],
+      },
+    ],
+    // 10g-16mm flathead screws at the paired-dimple positions.
+    // Box piece spans X = -1000 to +1000 (2000 mm).
+    // 15 mm-from-each-end → first dimple at -985, last at +985.
+    // 1970 mm available between → 4 gaps × 492.5 mm each = 5 dimples
+    // total per flange seam (well under the 900 mm max).
+    // Each dimple position gets a screw on BOTH flange seams
+    // (world Y = -44.5 AND world Y = +44.5).
+    joints: [-985, -492.5, 0, 492.5, 985].flatMap((x) => [
+      {
+        // Top flange seam: parent's top flange + Box's "bottom" flange
+        // share world Y = -44.5. Screw axis = world Y (perpendicular
+        // to flange faces).
+        position: [x, -44.5, 0] as [number, number, number],
+        axis: [0, 1, 0] as [number, number, number],
+        spanAxis: [1, 0, 0] as [number, number, number],
+        halfThickness: 0.75, // 1.5 mm grip ÷ 2
+        screwsPerSide: 1,
+        label: `box-flange-screw-Y-44 x=${x}`,
+      },
+      {
+        // Bottom flange seam at world Y = +44.5.
+        position: [x, 44.5, 0] as [number, number, number],
+        axis: [0, 1, 0] as [number, number, number],
+        spanAxis: [1, 0, 0] as [number, number, number],
+        halfThickness: 0.75,
+        screwsPerSide: 1,
+        label: `box-flange-screw-Y+44 x=${x}`,
+      },
+    ]),
+    cameraTarget: [0, 0, 0],
+    cameraDistance: 1500,
   },
 ];
