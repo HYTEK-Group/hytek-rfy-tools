@@ -26,6 +26,7 @@ import {
   PROFILE_70S41,
   PROFILE_75S41,
   PROFILE_89S41,
+  PROFILE_89S39,
   type InteractionConfig,
 } from "./types";
 
@@ -1347,32 +1348,38 @@ export const INTERACTIONS: InteractionConfig[] = [
     id: "D4",
     name: "D4 — Linear-truss boxed chord segment",
     description:
-      "Two 89×41 C-sections nested mouth-to-mouth form a closed-tube boxed member, used on high-load segments of a Linear-truss chord. Parent chord runs full length; Box piece spans only the high-moment zone (here 2000mm centred on a 4000mm parent). Registered + fastened via paired flange dimples — outward-pressed on Box, inward-pressed on parent — with a 10g-16mm flathead through each pair. Spacing: 15mm from each Box end, max 900mm between adjacent. ~3-4× the single-C section modulus. Strict isolation: LIN trusses + 89×41 LC 0.75 only.",
+      "Two C-sections with ASYMMETRIC flange heights nest together to form a closed rectangular tube, used on high-load segments of a Linear-truss chord. The OUTER stick (89S41, lFlange=41mm) is the parent — it runs the full length. The INNER stick (89S39, lFlange=39mm) is the Box piece — it spans only the high-moment zone (here 2000mm centred on a 4000mm parent). The 2mm flange-height delta lets the inner's smaller flanges nest INSIDE the outer's cavity with overlapping flange surfaces. Paired flange dimples (outward-pressed on inner, inward-pressed on outer) self-register the slide-in; 10g-16mm flathead screws through each pair give 1.5mm steel grip. Spacing: 15mm from each Box end, max 900mm between adjacent. ~3-4× the single-C section modulus. Strict isolation: LIN trusses + 89×41 LC 0.75 only.",
     sticks: [
-      // Parent chord — bench-flat along +X. Web on bench (Z=-20.5),
-      // flanges UP +Z, mouth UP. Length 4000, CL spans X = -2000 to +2000.
+      // Parent chord (OUTER, larger flanges) — bench-flat along +X. Web
+      // on bench (Z=-20.5), flanges UP +Z, mouth UP. Length 4000, CL
+      // spans X = -2000 to +2000. Profile 89S41: lFlange=41 (top),
+      // rFlange=38 (bottom), web=89.
       {
         profile: PROFILE_89S41,
         length: 4000,
         position: [-2000, 0, -20.5],
         rotation: ROT_BENCH_X,
-        label: "Parent chord (B1) — full length, mouth UP",
+        label: "Parent chord — 89S41 (outer, full length)",
         tint: "#9ca3af",
         ops: [
-          // (Future: matching paired dimples on flanges along the Box
-          // overlap zone. Joint markers below show the screw positions.)
+          // (Future: paired flange dimples along the Box overlap zone.
+          // Joint markers below show the screw positions on flange seams.)
         ],
       },
-      // Box piece — bench-flat along +X but INVERTED (web above, mouth
-      // DOWN) so it nests mouth-to-mouth with the parent. Web back at
-      // Z=+20.5 (above bench), flanges going DOWN to Z=-20.5 (parent's
-      // web level). 2000 mm long, centred over the parent's mid-span.
+      // Box piece (INNER, smaller flanges) — bench-flat along +X but
+      // INVERTED (web above, mouth DOWN) so it closes the tube mouth-to-
+      // mouth with the parent. Web back at Z=+20.5 (sits at parent's
+      // flange-tip line), flanges going DOWN by 39mm to Z=-18.5 (just
+      // shy of parent's web at Z=-20.5+0.75=-19.75 inner face → snug
+      // 1mm clearance). Profile 89S39: lFlange=rFlange=39mm, 2mm
+      // shorter than parent's flanges so inner nests cleanly INSIDE
+      // parent's cavity with ~1mm clearance to outer lip turn-back.
       {
-        profile: PROFILE_89S41,
+        profile: PROFILE_89S39,
         length: 2000,
         position: [-1000, 0, 20.5],
         rotation: ROT_BENCH_X_INV,
-        label: "Box piece (B1 Box1) — 2000mm, mouth DOWN",
+        label: "Box piece — 89S39 (inner, 2000mm)",
         tint: "#facc15",
         ops: [],
       },
