@@ -174,18 +174,21 @@ function buildOverlayMeshes(
         break;
 
       case "Chamfer":
-      case "TrussChamfer": {
-        // Chamfer wedge: a small dark filled-in volume sitting in the
-        // corner where the stick's lip meets its end face. Rendered as
-        // VERY DARK steel (almost black) so it reads as "this corner is
-        // cut away" rather than as added geometry.
+      case "TrussChamfer":
+      case "FullChamfer": {
+        // Chamfer wedge: a dark filled-in volume showing where flange
+        // material has been trimmed at the stick end so the flange
+        // terminates AT the receiving stick's edge with no overhang.
+        // (Real rollformer tool: "FULL CHAMFER" — sweeps a triangle
+        // across the full flange body. Current rendering uses the
+        // simpler corner-wedge shape; full-flange-body cut is a future
+        // geometry-baking improvement.)
         const z = op.end === "start" ? 0 : length;
-        const wedgeGeom = buildChamferWedge(
-          profile as never,
-          z,
-          op.end,
-          op.type === "TrussChamfer" ? "truss" : "regular",
-        );
+        const mode =
+          op.type === "Chamfer"
+            ? "regular"
+            : "truss"; /* TrussChamfer + FullChamfer share the bigger wedge */
+        const wedgeGeom = buildChamferWedge(profile as never, z, op.end, mode);
         elements.push(
           <mesh key={key} geometry={wedgeGeom} castShadow receiveShadow>
             <meshStandardMaterial
@@ -198,6 +201,44 @@ function buildOverlayMeshes(
         );
         break;
       }
+
+      case "WebNotch":
+        elements.push(
+          <WebNotchMesh
+            key={key}
+            pos={op.pos}
+            profile={profile}
+          />,
+        );
+        break;
+
+      case "Anchor":
+        elements.push(
+          <AnchorMesh key={key} pos={op.pos} innerWebX={innerWebX} />,
+        );
+        break;
+
+      case "LeftLegNotch":
+        elements.push(
+          <LegNotchMesh
+            key={key}
+            pos={op.pos}
+            side="top"
+            profile={profile}
+          />,
+        );
+        break;
+
+      case "RightLegNotch":
+        elements.push(
+          <LegNotchMesh
+            key={key}
+            pos={op.pos}
+            side="bottom"
+            profile={profile}
+          />,
+        );
+        break;
 
       // Spanned cut/press ops are handled by the segmented mesh — no
       // overlay needed here.
@@ -303,6 +344,107 @@ function ScrewHoleMesh({ pos, webX }: { pos: number; webX: number }) {
       <mesh>
         <cylinderGeometry args={[1.9, 1.9, 4, 12]} />
         <meshStandardMaterial color="#050505" metalness={0.05} roughness={0.98} />
+      </mesh>
+    </group>
+  );
+}
+
+// ─── Web notch — full-depth cut THROUGH the web ───────────────────────
+// Used on wall nogs at every stud crossing. Renders as a dark slot that
+// spans the full web height (-w/2 to +w/2) and is ~12mm wide along the
+// stick length. Sits on the web INNER face so it reads as a cut-out.
+function WebNotchMesh({
+  pos,
+  profile,
+}: {
+  pos: number;
+  profile: { web: number; gauge: string };
+}) {
+  const t = Math.max(0.4, parseFloat(profile.gauge) || 0.75);
+  const slotWidth = 12; // span along stick length
+  const innerWebX = t + 0.1;
+  return (
+    <group position={[innerWebX, 0, pos]}>
+      {/* Dark recess showing the full web cut */}
+      <mesh>
+        <boxGeometry args={[1, profile.web, slotWidth]} />
+        <meshStandardMaterial
+          color="#080808"
+          metalness={0.1}
+          roughness={0.95}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+// ─── Anchor — slab-anchor hardware indicator ──────────────────────────
+// Used on bottom plates only. Yellow vertical post visible on the web
+// inner face — represents the anchor bolt that ties the plate to the
+// concrete slab. Distinct from BOLT HOLES (just a hole) and InnerDimple
+// (small bump).
+function AnchorMesh({ pos, innerWebX }: { pos: number; innerWebX: number }) {
+  return (
+    <group position={[innerWebX, 0, pos]}>
+      {/* Vertical anchor post, axis along web Y */}
+      <mesh rotation={[0, 0, 0]}>
+        <cylinderGeometry args={[2.5, 2.5, 18, 12]} />
+        <meshStandardMaterial
+          color="#facc15"
+          metalness={0.7}
+          roughness={0.35}
+        />
+      </mesh>
+      {/* Hex head approximation on top of the bolt */}
+      <mesh position={[0, 9, 0]}>
+        <cylinderGeometry args={[3.5, 3.5, 2.5, 6]} />
+        <meshStandardMaterial
+          color="#facc15"
+          metalness={0.7}
+          roughness={0.35}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+// ─── Leg notch — rectangular flange + lip cut ─────────────────────────
+// Real FrameCAD op: LEFT LEG NOTCH or RIGHT LEG NOTCH. Cuts a
+// rectangular section through both flange and lip (web stays intact)
+// at a single point-position on the stick. Consecutive cuts at ~48mm
+// pitch combine into a wider opening for a crossing stick to pass
+// through the flange-line into the cavity.
+//
+// Rendered as a dark rectangular slot sitting on the OUTER face of the
+// affected flange + lip. Each cut is ~12mm wide along the stick length
+// and spans the full flange depth (lFlange or rFlange).
+function LegNotchMesh({
+  pos,
+  side,
+  profile,
+}: {
+  pos: number;
+  side: "top" | "bottom";
+  profile: { web: number; lFlange: number; rFlange: number; lip: number; gauge: string };
+}) {
+  const cutWidth = 12; // span along stick length
+  const t = Math.max(0.4, parseFloat(profile.gauge) || 0.75);
+  const flangeDepth = side === "top" ? profile.lFlange : profile.rFlange;
+  const flangeY = side === "top" ? profile.web / 2 : -profile.web / 2;
+  // Position the dark slot at the flange's outer surface (just outside
+  // the steel surface in +Y or -Y direction). Width = full flange
+  // depth, extends slightly past the lip-turn-back area.
+  const slotY = flangeY + (side === "top" ? t / 2 + 0.1 : -t / 2 - 0.1);
+  const slotCenterX = flangeDepth / 2;
+  return (
+    <group position={[slotCenterX, slotY, pos]}>
+      <mesh>
+        <boxGeometry args={[flangeDepth + 1, 1.2, cutWidth]} />
+        <meshStandardMaterial
+          color="#080808"
+          metalness={0.1}
+          roughness={0.95}
+        />
       </mesh>
     </group>
   );
