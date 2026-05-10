@@ -230,78 +230,104 @@ const ROT_BENCH_X_INV: [number, number, number] = eulerFromAxes(
 
 export const INTERACTIONS: InteractionConfig[] = [
   // ──────────────────────────────────────────────────────────────────
-  // A1 — T-junction (orthogonal): stud meets top plate
-  //   Per FrameCAD FC-W2: the stud's top end NESTS INSIDE the plate's
-  //   open mouth. The plate's flanges hug the stud's web from front and
-  //   back. The plate's lips are notched out across the stud's entry
-  //   width so the stud's flange ends can pass through. The stud's last
-  //   ~50mm is swaged (profile compressed) so it physically fits inside
-  //   the plate's interior cavity. 1× #10g screw per side at the joint.
+  // A1 — T-junction (orthogonal): stud meets top plate (BENCH-FLAT)
+  //   Per FrameCAD FC-W2: in assembly, the stud's top end NESTS INSIDE
+  //   the plate's open mouth — the plate's lips are notched out where
+  //   the stud's flange ends pass through, and the stud's last ~50mm
+  //   is swaged so its compressed profile fits inside the plate cavity.
+  //
+  //   In bench-flat layout, both sticks lie web-on-bench (web back at
+  //   Z=-20.5, CL on Z=0, flanges UP +Z). Stud's local +Y → world +X,
+  //   so the stud's web spans world X ∈ [-35, +35] and its two flanges
+  //   sit at world X=+35 (local Y=+35 = lFlange = "top") and X=-35
+  //   (local Y=-35 = rFlange = "bottom"). Plate's local +Y → world -Y,
+  //   so the plate's two flanges sit at world Y=2344.5 (local Y=+35 =
+  //   "top") and Y=2414.5 (local Y=-35 = "bottom"). The stud's two
+  //   flanges therefore cross the plate's two flanges at SEPARATE
+  //   plate-local z positions — one per flange — not a single shared
+  //   notch span. This is unlike A5 (45° diagonal) where both flange
+  //   projections fall inside a single 50mm chord-z window.
   // ──────────────────────────────────────────────────────────────────
   {
     id: "A1",
     name: "A1 — T-junction (orthogonal)",
     description:
-      "A vertical stud nests INSIDE a horizontal top plate at 90°. The stud's top 50mm is swaged (profile compressed) so it fits inside the plate's interior cavity. The plate's open mouth faces DOWN, its flanges hug the stud's web from front and back, and its lips are notched out across the stud's entry width. 1× #10g screw per side per FrameCAD FC-W2.",
+      "A vertical stud nests INSIDE a horizontal top plate at 90°, BENCH-FLAT (both sticks lie web-on-bench, flanges UP). The stud's top 50mm is swaged so its compressed profile fits inside the plate cavity when assembled. The plate gets TWO separate LipNotches — one per flange — each centred where the corresponding stud flange (world X=±35) crosses the plate flange (world Y=2344.5 / 2414.5). InnerDimples land at the CL–CL meeting (0, 2379.5, 0). 1× #10g screw per side per FrameCAD FC-W2.",
     sticks: [
-      // Stud — vertical, top end NESTED inside plate. Length 2398 →
-      // tip at world Y=2398, just below the plate's web inner face
-      // (Y=2400-t≈2399.25). The last 50mm (z=2348-2398) is swaged.
-      // Position offset by -lf/2 = -20.5 in world X so the stud's
-      // CENTRELINE (not its web back) sits on the joint axis at X=0.
-      // Without this offset the stud was offset to one side of the
-      // plate's LipNotch and the stud's flange tip clipped through the
-      // plate's intact lip on the other side. (Bug fix 2026-05-09.)
+      // Stud — bench-flat, length axis +Y, web back on Z=-20.5, flanges
+      // UP +Z. Length 2398, CL at world (X=0, Y∈[0, 2398], Z=0). Profile
+      // origin (web-back midline) sits at world X=0 because the stud's
+      // CL X-position is at X=0 and ROT_BENCH_Y does not shift CL in X
+      // (local +Y → world +X is symmetric about local Y=0).
       {
         profile: PROFILE_70S41,
         length: 2398,
-        position: [-20.5, 0, 0],
-        rotation: ROT_VERTICAL_Y,
+        position: [0, 0, -20.5],
+        rotation: ROT_BENCH_Y,
         label: "Stud (S)",
         ops: [
-          // Swage compresses the top 50mm so it fits inside plate cavity
+          // Swage on top 50mm — stick-local position unchanged from old
+          // A1 (Swage is along length axis, independent of cross-section
+          // orientation). When assembled the swaged section nests inside
+          // the plate's cavity.
           { type: "Swage", spanStart: 2348, spanEnd: 2398 },
-          // Dimple at CL–CL intersection: stud-CL crosses plate-CL at
-          // world Y=2379.5 (plate web Y=2400 minus lf/2=20.5).
+          // Dimple at CL–CL intersection: stud CL crosses plate CL at
+          // world (0, 2379.5, 0). Stud-local z = 2379.5.
           { type: "InnerDimple", pos: 2379.5 },
         ],
       },
-      // Top plate — horizontal, mouth opens DOWNWARD so the stud nests
-      // inside. Position chosen so plate's web is at world Y=2400.
-      // Plate length 1200 centred over the stud at world X=0.
+      // Top plate — bench-flat, length axis +X, web back on Z=-20.5,
+      // flanges UP +Z. Length 1200 centred over the stud (start at X=-600).
+      // Position Y = CL Y = 2379.5 (ROT_BENCH_X maps local +Y → world -Y
+      // symmetrically about local Y=0, so position Y is the CL Y directly,
+      // not the web-back Y — different from the old _DOWN rotation which
+      // put the web on +Y above the CL).
       {
         profile: PROFILE_70S41,
         length: 1200,
-        position: [-600, 2400, 0],
-        rotation: ROT_HORIZONTAL_X_DOWN,
+        position: [-600, 2379.5, -20.5],
+        rotation: ROT_BENCH_X,
         label: "Top plate (P)",
         ops: [
-          // LipNotch centred on CL–CL intersection (plate-local z=600).
+          // Stud's flange at world X=-35 crosses plate's rFlange at world
+          // Y=2414.5 (local Y=-35 = "bottom"). Plate-local z = -35 -
+          // (-600) = 565. 50mm-wide LipNotch on bottom flange only.
           {
             type: "LipNotch",
-            spanStart: 575,
-            spanEnd: 625,
-            flangeSide: "both",
+            spanStart: 540,
+            spanEnd: 590,
+            flangeSide: "bottom",
           },
-          // Dimple at CL–CL intersection (plate-local z=600).
+          // Stud's flange at world X=+35 crosses plate's lFlange at world
+          // Y=2344.5 (local Y=+35 = "top"). Plate-local z = 35 - (-600)
+          // = 635. 50mm-wide LipNotch on top flange only.
+          {
+            type: "LipNotch",
+            spanStart: 610,
+            spanEnd: 660,
+            flangeSide: "top",
+          },
+          // Dimple at CL–CL intersection: stud CL X=0 → plate-local z =
+          // 0 - (-600) = 600.
           { type: "InnerDimple", pos: 600 },
         ],
       },
     ],
     joints: [
-      // 1× #10g screw per side at the joint, at CL–CL intersection (0, 2379.5, 0).
+      // 1× #10g screw per side at the joint, at CL–CL intersection
+      // (0, 2379.5, 0). spanAxis follows the receiving stick (plate)
+      // length direction = world +X in bench-flat.
       {
         position: [0, 2379.5, 0],
         axis: [0, 0, 1],
-        spanAxis: [0, 1, 0],
+        spanAxis: [1, 0, 0],
         halfThickness: 35,
         screwsPerSide: 1,
         label: "stud-to-top-plate",
       },
     ],
-    // Camera focuses on the joint area at the top of the stud.
-    cameraTarget: [0, 2360, 0],
-    cameraDistance: 380,
+    cameraTarget: [0, 2379.5, 0],
+    cameraDistance: 450,
   },
 
   // ──────────────────────────────────────────────────────────────────
