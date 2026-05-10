@@ -89,6 +89,28 @@
         "On W at this end: Chamfer (wall-style chamfer, not TrussChamfer) + Swage 41 mm + InnerDimple @10 mm."
       ],
       "why": "Wall braces use a different chamfer geometry from truss webs; the angle threshold prevents the chamfer firing on near-vertical W's that don't need it."
+    },
+    {
+      "name": "Linear-truss-web-at-chord",
+      "description": "Variant of Truss-vertical-at-chord and Truss-diagonal-at-chord that fires when the HYTEK Linear-truss simplifier's 4-layer gate matches: frame.type === 'Truss' AND plan name matches /-LIN-/i AND every stick is 89×41 LC 0.75 gauge AND frame has both chord+web members. The simplifier's centreline-intersection rule rewrites the joint.",
+      "participants": "Every chord-web crossing on a HYTEK Linear truss (89×41 LC 0.75, plan name contains '-LIN-'). Both vertical webs and angled diagonals.",
+      "emits": [
+        "On the WEB of EACH stick at the CL–CL crossing: 3 × M6 BOLT HOLES at 17 mm pitch perpendicular to (i.e. drilled through) the web. The 3-hole pattern is along the stick's length axis at the crossing position.",
+        "Strips/replaces the FrameCAD-baseline outputs at this joint: NO LipNotch on chord, NO Swage on web, NO InnerDimple. The BOLT HOLES rule is the ONLY joint-specific operation.",
+        "TrussChamfer at both ends of the W stays from the FrameCAD baseline (the simplifier doesn't touch chamfers)."
+      ],
+      "why": "Linear trusses use back-to-back web contact at every joint with 3 × M6 self-drilling screws — a fundamentally different connection pattern from the FrameCAD-baseline LipNotch/Swage/InnerDimple triple. STRICT ISOLATION: this rule must NEVER fire on walls, floors, non-LIN trusses, or non-89×41 designs. Walls and other trusses use the regular Truss-diagonal-at-chord / Truss-vertical-at-chord rules (LipNotch + Swage + InnerDimple)."
+    },
+    {
+      "name": "Linear-truss-boxed-chord-segment",
+      "description": "Two 89×41 C-sections nested mouth-to-mouth to form a closed-tube boxed member on a high-load segment of a Linear-truss chord. The Box piece is shorter than the parent (only spans the high-moment zone) and a single chord can have multiple Box zones (e.g. B1 (Box1) + B1 (Box2)). Fires only on Linear trusses.",
+      "participants": "High-load segments of any chord on a HYTEK Linear truss (89×41 LC 0.75, plan name contains '-LIN-'). The parent runs the chord's full length; the Box piece is a separate member only as long as the boxed zone.",
+      "emits": [
+        "Paired flange dimples on Box AND parent at matching world positions: outward-pressed on Box's flanges, inward-pressed on parent's flanges. The bumps interlock at the flange-to-flange seam (geometric self-registration; operator measures nothing).",
+        "10g-16mm flathead screw at every paired-dimple position. Countersunk so the head sits flush with the flange face. Passes through Box flange (0.75) + parent flange (0.75) = 1.5 mm steel grip.",
+        "Spacing rule (canonical 2026-05-10): first/last dimple = 15 mm from each end of the Box piece; maximum gap between adjacent dimples = 900 mm. Both pieces get matching dimples at the same world positions."
+      ],
+      "why": "Boxed segment gives ~3-4× the section modulus and much higher buckling/torsion resistance over the boxed length only — a localised strength upgrade where the chord's bending moment peaks. The dimples self-align the Box on the parent during slide-in; the screws make the connection permanent. STRICT ISOLATION: this rule fires ONLY on LIN trusses + 89×41 LC 0.75. Wall B2B partner pairs (also flange-on-flange geometrically) use the Web @8 slab-anchor pattern and alternating-side screws per FC-W3 — a different rule."
     }
   ]
 }

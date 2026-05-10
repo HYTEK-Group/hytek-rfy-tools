@@ -14,6 +14,7 @@ const EXPECTED_INTERACTIONS = [
   "T-junction", "X-crossing", "End-butt", "Lap", "B2B partner pair",
   "Header-cripple (Kb meets H)", "Truss-vertical-at-chord",
   "Truss-diagonal-at-chord", "Wall-W-at-plate",
+  "Linear-truss-web-at-chord", "Linear-truss-boxed-chord-segment",
 ];
 
 const EXPECTED_FRAME_CONTEXTS = [
@@ -41,7 +42,7 @@ describe("brain catalogues — content completeness", () => {
     expect(codes.length).toBe(EXPECTED_ROLES.length);
   });
 
-  it("Catalogue B contains all 9 expected interactions", () => {
+  it("Catalogue B contains all 11 expected interactions", () => {
     const names = cat.interactions.entries.map(e => e.name);
     for (const expected of EXPECTED_INTERACTIONS) {
       expect(names).toContain(expected);
