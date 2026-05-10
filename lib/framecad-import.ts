@@ -69,6 +69,13 @@ interface RawFrame {
    *  (`simplifyWallServiceInProject`) to emit dynamic InnerService ops on
    *  vertical wall studs. Empty when the frame has no Service tool_actions. */
   serviceActions: ServiceAction[];
+  /** Parsed `<tool_action name="Web">` segments for this frame (world-3D).
+   *  Consumed by the codec's wall-web simplifier
+   *  (`simplifyWallWebInProject`, added 2026-05-09 by Agent W) to emit
+   *  per-stud Web bolt-hole ops on vertical wall studs of LBW/NLBW plans.
+   *  Closes ~80% of the LBW Web parity gap (260→52 missing on HG260044 LBW;
+   *  +1.35-1.52pp combined corpus parity). Empty when no Web tool_actions. */
+  webActions: { start: Vec3; end: Vec3 }[];
   /** Parsed `<line layer="0">` elements — strap-brace diagonals + anchor
    *  marks that appear in elevation but aren't structural sticks. Detailer
    *  draws these as construction lines crossing the wall (the X-pattern
@@ -203,19 +210,30 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
       // simplify-wall-service-design.md for the selection rule and corpus
       // evidence. Migrated by Agent V (2026-05-05) from the diff harness.
       const serviceActions: ServiceAction[] = [];
+      const webActions: { start: Vec3; end: Vec3 }[] = [];
       for (const ta of (frameNode.tool_action ?? []) as Array<{
         "@_name"?: string;
         start?: string | { "#text"?: string };
         end?: string | { "#text"?: string };
       }>) {
         const name = String(ta["@_name"] ?? "");
-        if (name !== "Service") continue;
         const startText = typeof ta.start === "string" ? ta.start : ta.start?.["#text"] ?? "0,0,0";
         const endText = typeof ta.end === "string" ? ta.end : ta.end?.["#text"] ?? "0,0,0";
-        serviceActions.push({
-          start: parseTriple(startText),
-          end: parseTriple(endText),
-        });
+        if (name === "Service") {
+          serviceActions.push({
+            start: parseTriple(startText),
+            end: parseTriple(endText),
+          });
+        } else if (name === "Web") {
+          // Detailer emits a Web tool_action for every transverse bolt-hole
+          // through a stud's web at a specific elevation Z. The codec's
+          // simplifyWallWebInProject (added 2026-05-09 by Agent W) consumes
+          // these to emit per-stud Web ops on LBW/NLBW vertical wall studs.
+          webActions.push({
+            start: parseTriple(startText),
+            end: parseTriple(endText),
+          });
+        }
       }
 
       // Parse <line layer="0"> elements. These are construction lines drawn
@@ -278,6 +296,7 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         envelope,
         sticks: [],
         serviceActions,
+        webActions,
         diagonalLines,
         fasteners,
         labels,
@@ -432,9 +451,19 @@ function parsePlans(xmlText: string): ProjectMeta & { plans: RawPlan[] } {
         //   Verified vs HG260012 TH02-2F-FJ J2201-1/V5: input 356 → ref 352.
         const isNog = usageLower === "nog" || usageLower === "noggin";
         const isJoistWeb = /^V\d/.test(stickName) && usageLower === "web";
+        // L Sill (lintel/sill plate, usage="Sill"): 1mm/end trim.
+        // Verified 2026-05-09 vs HG260044 GF-LBW + GF-NLBW + HG260001 PK4/PK5
+        // LBW: every L1 (Sill) stick's InnerNotch+LipNotch+InnerDimple
+        // cluster drifts +2mm vs Detailer. Sill L1 raw XML length 706 → ref
+        // output 704 (1mm/end, same as H header). Sills are caps that need
+        // shop-floor clearance for the verticals seating against them, just
+        // like headers. Same fix mirrored in
+        // hytek-rfy-codec/scripts/diff-vs-detailer.mjs for diff-harness parity.
+        const isSill = usageLower === "sill";
         const studTrim = (isFullStud || isJoistWeb) ? 2.0 : 0;
         const nogTrim = isNog ? 1.0 : 0;
-        const trimAmount = studTrim || nogTrim;
+        const sillTrim = isSill ? 1.0 : 0;
+        const trimAmount = studTrim || nogTrim || sillTrim;
         void isHeader;
         if (trimAmount > 0) {
           const dx = end.x - start.x, dy = end.y - start.y, dz = end.z - start.z;
@@ -778,6 +807,11 @@ export function framecadImportToParsedProject(xmlText: string): ParsedProject {
         // Without this, wall studs on LBW/NLBW plans would still receive the
         // static InnerService @296/@446 rule that this dispatch replaces.
         serviceActions: frame.serviceActions,
+        // Carry webActions through to the codec so simplifyWallWebInProject
+        // (added 2026-05-09 by Agent W) can emit per-stud Web bolt-hole ops
+        // on LBW/NLBW vertical wall studs. Without this, ~260 Web ops/corpus
+        // would remain missing vs Detailer.
+        webActions: frame.webActions,
       });
     }
     outPlans.push({ name: plan.name, frames: outFrames });
