@@ -255,25 +255,25 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 2398,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [-20.5, 0, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Stud (S)",
         ops: [
           // Swage compresses the top 50mm so it fits inside plate cavity
           { type: "Swage", spanStart: 2348, spanEnd: 2398 },
           // Dimple at CL–CL intersection: stud-CL crosses plate-CL at
-          // world Y=2379.5 (plate CL Y).
+          // world Y=2379.5 (plate web Y=2400 minus lf/2=20.5).
           { type: "InnerDimple", pos: 2379.5 },
         ],
       },
-      // Top plate — bench-flat along +X. Web on bench (Z=-20.5),
-      // flanges UP +Z. Plate CL at world Y=2379.5; length 1200 centred
-      // over the stud at world X=0.
+      // Top plate — horizontal, mouth opens DOWNWARD so the stud nests
+      // inside. Position chosen so plate's web is at world Y=2400.
+      // Plate length 1200 centred over the stud at world X=0.
       {
         profile: PROFILE_70S41,
         length: 1200,
-        position: [-600, 2379.5, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-600, 2400, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate (P)",
         ops: [
           // LipNotch centred on CL–CL intersection (plate-local z=600).
@@ -327,8 +327,8 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 1800,
-        position: [0, 0, -20.5],
-        rotation: rotForBenchAngle((Math.PI / 180) * 60),
+        position: [17.75, -10.25, 0],
+        rotation: rotForAngledIntoPlate((Math.PI / 180) * 60, "above"),
         label: "Brace (B)",
         ops: [
           // Swage compression at the tip (last 50mm) so brace's profile
@@ -337,23 +337,24 @@ export const INTERACTIONS: InteractionConfig[] = [
           // Chamfer at very end so the corner doesn't scrape plate web
           { type: "Chamfer", end: "end" },
           // Dimple at CL–CL intersection: brace-CL crosses plate-CL at
-          // world Y = 1540.5; brace t at that Y = 1540.5 / sin60° = 1778.5.
+          // world Y = 1561 - 20.5 = 1540.5; brace t at that Y =
+          // 1540.5 / sin60° = 1778.5.
           { type: "InnerDimple", pos: 1778.5 },
         ],
       },
-      // Plate — bench-flat along +X (web on Z=-20.5, flanges UP). Plate
-      // CL at world Y=1540.5 so it intersects the brace's CL endpoint.
-      // Brace tip Y = 1800·sin60° = 1559.4 → CL crosses at 1540.5
-      // (lf/2 below the tip's flange tip).
+      // Plate — horizontal, mouth opens DOWNWARD. Plate's web positioned
+      // just above brace's tip so the brace's swaged section nests fully
+      // inside the cavity. Brace tip Y = 1800·sin60° = 1559.4. Place
+      // plate's web at Y = 1561.
       {
         profile: PROFILE_70S41,
         length: 2400,
-        position: [-300, 1540.5, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-300, 1561, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate (P)",
         ops: [
-          // CL–CL intersection in world: (889.25, 1540.5, 0).
-          // Plate-local z = 889.25 - (-300) = 1189.25.
+          // CL–CL intersection in world: (1778.5·cos60°, 1540.5, 0) =
+          // (889.25, 1540.5, 0). Plate-local z = 889.25 - (-300) = 1189.25.
           // 50mm-wide LipNotch centred on 1189.25 → 1164.25..1214.25.
           {
             type: "LipNotch",
@@ -397,8 +398,8 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 398,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [-20.5, 0, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Cripple (Kb)",
         ops: [
           { type: "Chamfer", end: "start" },
@@ -408,14 +409,16 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 379.5 },
         ],
       },
-      // H header — bench-flat along +X (web on Z=-20.5, flanges UP),
-      // 2055mm long. Header CL at world Y=379.5 so the cripple's top
-      // tip (at Y≈398) lands just past the header's CL.
+      // H header — horizontal, 2055mm long, mouth opens DOWNWARD
+      // so the cripple's swaged top end nests INSIDE the header's
+      // open cavity from below. (Was ROT_HORIZONTAL_X — mouth faced
+      // -Z into the page, so cripple just butted against header's
+      // flange edge instead of nesting inside.)
       {
         profile: PROFILE_70S41,
         length: 2055,
-        position: [-1027, 379.5, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1027, 400, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Header (H)",
         ops: [
           // LipNotch centred on CL–CL intersection: cripple-CL crosses
@@ -456,25 +459,25 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 598,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [-20.5, 0, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Web (W)",
         ops: [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
           { type: "Swage", spanStart: 548, spanEnd: 598 },
           // Dimple at CL–CL intersection: web-CL crosses chord-CL at
-          // world Y = 579.5.
+          // world Y = 600 - 20.5 = 579.5.
           { type: "InnerDimple", pos: 579.5 },
         ],
       },
-      // Chord — bench-flat along +X (web on Z=-20.5, flanges UP).
-      // Chord CL at world Y=579.5, length 2000 centred at X=0.
+      // Chord — horizontal, mouth opens DOWNWARD so the web tip nests
+      // inside. Chord's web at world Y=600, length 2000 centred at X=0.
       {
         profile: PROFILE_70S41,
         length: 2000,
-        position: [-1000, 579.5, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1000, 600, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top chord",
         ops: [
           {
@@ -518,23 +521,23 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 598,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [0, 0, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Web (W)",
         ops: [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
           { type: "Swage", spanStart: 548, spanEnd: 598 },
           // Dimple at CL–CL intersection: web-CL crosses chord-CL at
-          // world Y = 579.5.
+          // world Y = 600 - 20.5 = 579.5.
           { type: "InnerDimple", pos: 579.5 },
         ],
       },
       {
         profile: PROFILE_70S41,
         length: 2000,
-        position: [-1000, 579.5, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1000, 600, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top chord",
         ops: [
           {
@@ -728,8 +731,8 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 1800,
-        position: [0, 0, -20.5],
-        rotation: rotForBenchAngle((Math.PI / 180) * 60),
+        position: [17.75, -10.25, 0],
+        rotation: rotForAngledIntoPlate((Math.PI / 180) * 60, "above"),
         label: "Wall brace (W)",
         ops: [
           // Chamfer at start (where brace meets bottom plate, not shown)
@@ -742,13 +745,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 1778.5 },
         ],
       },
-      // Top plate — bench-flat along +X (web on Z=-20.5, flanges UP).
-      // Plate CL at world Y=1540.5.
+      // Top plate — horizontal, mouth opens DOWN. Plate's web at Y=1561.
       {
         profile: PROFILE_70S41,
         length: 2400,
-        position: [-300, 1540.5, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-300, 1561, 0],
+        rotation: ROT_HORIZONTAL_X_DOWN,
         label: "Top plate",
         ops: [
           // LipNotch centred on CL–CL intersection (plate-local z=1189.25).
@@ -786,13 +788,12 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "Two truss webs forming an X at ±45°, crossing at their midpoints. Only the PRIMARY (longer / first-encountered) gets the LipNotch + InnerDimple at the crossing — the secondary passes through the cut without modification. This pattern shows up across linear-truss panels.",
     sticks: [
-      // Diagonal A: +45° from horizontal — bench-flat (web on Z=-20.5,
-      // flanges UP +Z). CL goes from (-500, -500, 0) to (500, 500, 0).
+      // Diagonal A: +45° from horizontal
       {
         profile: PROFILE_70S41,
         length: 1414, // sqrt(2) * 1000
-        position: [-500, -500, -20.5],
-        rotation: rotForBenchAngle(Math.PI / 4),
+        position: [-500, -500, 0],
+        rotation: rotForXYAngle(Math.PI / 4),
         label: "Web A (primary)",
         ops: [
           {
@@ -804,13 +805,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 707 },
         ],
       },
-      // Diagonal B: -45° from horizontal — bench-flat. CL from
-      // (-500, 500, 0) to (500, -500, 0). Crosses A at world (0,0,0).
+      // Diagonal B: -45° from horizontal
       {
         profile: PROFILE_70S41,
         length: 1414,
-        position: [-500, 500, -20.5],
-        rotation: rotForBenchAngle(-Math.PI / 4),
+        position: [-500, 500, 0],
+        rotation: rotForXYAngle(-Math.PI / 4),
         label: "Web B (secondary)",
         ops: [],
       },
@@ -826,12 +826,12 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "Two horizontal plates ending near each other with a 30mm gap — the typical panel-break in a long wall run. Each plate has a standard end-cap (LipNotch + InnerDimple at each end). No special joining op — just shows two end-caps side by side.",
     sticks: [
-      // Plate 1 — left half, bench-flat (web on Z=-20.5, flanges UP).
+      // Plate 1 — left half
       {
         profile: PROFILE_70S41,
         length: 1500,
-        position: [-1500, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1500, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Plate 1",
         ops: [
           { type: "LipNotch", spanStart: 0, spanEnd: 39, flangeSide: "both" },
@@ -840,12 +840,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 1480 },
         ],
       },
-      // Plate 2 — right half (30mm gap), bench-flat.
+      // Plate 2 — right half (30mm gap)
       {
         profile: PROFILE_70S41,
         length: 1500,
-        position: [30, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [30, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Plate 2",
         ops: [
           { type: "LipNotch", spanStart: 0, spanEnd: 39, flangeSide: "both" },
@@ -869,14 +869,14 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "Two studs paired flange-on-flange — lips touching down the centreline, webs facing OUT to opposite sides of the wall. Per FrameCAD FC-W3, screws alternate sides of the web at max 6\" (152mm) spacing connecting the pair. (The Web-hole pattern shows where through-bolts pass through both webs in heavier-load configurations.)",
     sticks: [
-      // Stud A — bench-flat. Web back at Z=-20.5 (bottom of pair),
-      // flanges UP +Z toward partner. Stud runs +Y for length 2700.
+      // Stud A — flanges extending toward x=0 (lips at world x=-1.5)
+      // web at world x=-42.5
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_Y,
-        label: "Stud A (web -Z)",
+        position: [-42.5, 0, 0],
+        rotation: ROT_VERTICAL_Y,
+        label: "Stud A (web -X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -887,18 +887,14 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Web", pos: 2700 - 38, diameter: 8 },
         ],
       },
-      // Stud B — bench-flat partner. Web at Z=+20.5 (top of pair),
-      // flangeDir "flipped" makes flanges go DOWN -Z toward partner.
-      // Together with Stud A this forms a closed-tube pair (mouths
-      // facing each other across the 41mm gap, lips overlapping in
-      // the seam since 70S41 has lf+rf=79 > w=70 → 9mm overlap).
+      // Stud B — flange flipped, web at world x=+42.5, lips at world x=+1.5
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [0, 0, 20.5],
-        rotation: ROT_BENCH_Y,
+        position: [42.5, 0, 0],
+        rotation: ROT_VERTICAL_Y,
         flangeDir: "flipped",
-        label: "Stud B (web +Z)",
+        label: "Stud B (web +X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -973,17 +969,13 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "The other 'double stud' configuration — webs TOUCHING in the centre, flanges OUT to opposite sides. Same 7-hole web pattern as D2 but the visual layout is dramatically different: the through-bolts pass through both webs at once, and the two C-sections form a closed-tube cross-section.",
     sticks: [
-      // Stud A — bench-flat. Web back at Z=-20.5 (web faces +Z, but
-      // flange-open is +Z too — wait, this scene is web-on-web). For
-      // bench-flat, both studs lie web-on-bench → their webs touch in
-      // the same Z plane. We offset Stud A by +0.75 in Z to keep webs
-      // touching face-to-face without z-fighting.
+      // Stud A — web back at x=0, flanges extending +X
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_Y,
-        label: "Stud A (flanges UP +Z)",
+        position: [0, 0, 0],
+        rotation: ROT_VERTICAL_Y,
+        label: "Stud A (flanges +X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -994,17 +986,14 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Web", pos: 2700 - 38, diameter: 8 },
         ],
       },
-      // Stud B — bench-flat partner stacked next to Stud A. Web back
-      // at Z=-21.25 (offset 0.75mm so the two web BACK faces touch
-      // each other), flanges UP +Z (same direction as Stud A) — this
-      // is the WEB-ON-WEB / I-beam configuration (NOT closed tube).
+      // Stud B — flipped so flanges extend -X, web back at x=-1.5 (small offset to avoid z-fighting)
       {
         profile: PROFILE_70S41,
         length: 2700,
-        position: [0, 0, -21.25],
-        rotation: ROT_BENCH_Y,
+        position: [-1.5, 0, 0],
+        rotation: ROT_VERTICAL_Y,
         flangeDir: "flipped",
-        label: "Stud B (flanges flipped)",
+        label: "Stud B (flanges -X)",
         ops: [
           { type: "Web", pos: 38, diameter: 8 },
           { type: "Web", pos: 38 + 447, diameter: 8 },
@@ -1027,12 +1016,12 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "An 89mm horizontal outer plate has a smaller 70mm vertical stud passing THROUGH it. The outer's lip is fully removed (LipNotch over the entry zone) so the inner can pass through unobstructed. The inner stick gets a Swage along the section that sits inside the outer — that compressed segment is what 'nests' inside.",
     sticks: [
-      // Outer plate — 89S41 bench-flat along +X (web on Z=-20.5).
+      // Outer plate — 89S41 horizontal
       {
         profile: PROFILE_89S41,
         length: 2000,
-        position: [-1000, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1000, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Outer plate (89S41)",
         ops: [
           // LipNotch on top lip over the inner stick's full width (~70mm + clearance)
@@ -1045,13 +1034,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 1000 },
         ],
       },
-      // Inner stud — 70S41 bench-flat along +Y (vertical), passes
-      // through the outer's open mouth area.
+      // Inner stud — 70S41 vertical, passes through the outer's web
       {
         profile: PROFILE_70S41,
         length: 800,
-        position: [0, -400, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [0, -400, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Inner stud (70S41)",
         ops: [
           // Swage where it nests through the outer (mid-section)
@@ -1070,12 +1058,12 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "Two horizontal sticks splice end-to-end with overlap — the smaller 70S41 inner slides INTO the 89S41 outer along the same axis. 300mm overlap zone. The outer gets a LipNotch + InnerDimple at the overlap. The inner gets a Swage along the overlap length — that compressed portion is what fits inside the outer's bore.",
     sticks: [
-      // Outer (89S41) — left half, bench-flat along +X (web on Z=-20.5).
+      // Outer (89S41) — left half
       {
         profile: PROFILE_89S41,
         length: 1500,
-        position: [-1500, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1500, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Outer (89S41)",
         ops: [
           {
@@ -1087,13 +1075,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 1350 },
         ],
       },
-      // Inner (70S41) — right half, sliding into the outer with 300mm
-      // overlap. Bench-flat (web on Z=-20.5).
+      // Inner (70S41) — right half, sliding into the outer with 300mm overlap
       {
         profile: PROFILE_70S41,
         length: 1500,
-        position: [-300, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-300, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Inner (70S41)",
         ops: [
           { type: "Swage", spanStart: 0, spanEnd: 300 },
@@ -1111,12 +1098,12 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "An 89mm bottom plate anchored to a concrete slab. Web holes are punched 8mm in from each end (small fastener holes), and the actual hold-down anchors are larger Bolts at ±62mm offsets from each Web hole. Together these 4 anchor points hold the wall down through earthquake loading.",
     sticks: [
-      // Bottom plate — 89S41 bench-flat (web on Z=-20.5, flanges UP).
+      // Bottom plate — 89S41
       {
         profile: PROFILE_89S41,
         length: 2400,
-        position: [-1200, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1200, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Bottom plate (89S41)",
         ops: [
           // Web holes near each end (small)
@@ -1127,12 +1114,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Bolt", pos: 2330, diameter: 14 },
         ],
       },
-      // Optional: a stud above to give context (bench-flat).
+      // Optional: a stud above to give context
       {
         profile: PROFILE_70S41,
         length: 2400,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [0, 89, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Stud (context)",
         ops: [],
       },
@@ -1148,14 +1135,12 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "Two stacked headers form a box header above an opening. Each header has end-caps (LipNotch + InnerDimple) at both ends, plus a Web hole 89mm from each end and additional Web stiffeners distributed along the length (max 300mm spacing). The two headers are typically bolted together via the web stiffener line.",
     sticks: [
-      // H1 — top header (bench-flat: web on Z=-20.5, flanges UP +Z).
-      // Stacked above H2 with 70mm vertical offset so they look like a
-      // box header in the elevation view.
+      // H1 — top header
       {
         profile: PROFILE_70S41,
         length: 2055,
-        position: [-1027, 70, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1027, 70, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Header H1 (top)",
         ops: [
           { type: "LipNotch", spanStart: 0, spanEnd: 39, flangeSide: "both" },
@@ -1172,12 +1157,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Web", pos: 2055 - 89, diameter: 8 },
         ],
       },
-      // H2 — bottom header (bench-flat).
+      // H2 — bottom header
       {
         profile: PROFILE_70S41,
         length: 2055,
-        position: [-1027, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-1027, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Header H2 (bottom)",
         ops: [
           { type: "LipNotch", spanStart: 0, spanEnd: 39, flangeSide: "both" },
@@ -1205,12 +1190,12 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "Two sticks crossing at 90° in their middles — a horizontal nog meeting a vertical stud at its centerline. Only the primary stick (here the horizontal) gets the LipNotch + InnerDimple — the other passes through.",
     sticks: [
-      // Horizontal nog — primary, bench-flat (web on Z=-20.5, flanges UP).
+      // Horizontal — primary
       {
         profile: PROFILE_70S41,
         length: 1500,
-        position: [-750, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-750, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Nog (primary)",
         ops: [
           {
@@ -1222,12 +1207,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "InnerDimple", pos: 750 },
         ],
       },
-      // Vertical stud — secondary, bench-flat. No ops (passes through).
+      // Vertical — secondary, no operations
       {
         profile: PROFILE_70S41,
         length: 1500,
-        position: [0, -750, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [0, -750, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Stud (secondary)",
         ops: [],
       },
@@ -1243,24 +1228,24 @@ export const INTERACTIONS: InteractionConfig[] = [
     description:
       "Two horizontal plates meeting at a 90° corner with mitred ends. Each plate has a Chamfer at the meeting end and an InnerDimple just inside. This is how external wall corners are formed in HYTEK panel sets.",
     sticks: [
-      // Plate A — runs along +X (bench-flat, web on Z=-20.5).
+      // Plate A — runs along +X
       {
         profile: PROFILE_70S41,
         length: 1200,
-        position: [0, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [0, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Plate A",
         ops: [
           { type: "Chamfer", end: "end" },
           { type: "InnerDimple", pos: 1180 },
         ],
       },
-      // Plate B — runs along +Y, perpendicular (bench-flat).
+      // Plate B — runs along +Y, perpendicular
       {
         profile: PROFILE_70S41,
         length: 1200,
-        position: [1200, 0, -20.5],
-        rotation: ROT_BENCH_Y,
+        position: [1200, 0, 0],
+        rotation: ROT_VERTICAL_Y,
         label: "Plate B",
         ops: [
           { type: "Chamfer", end: "start" },
@@ -1282,8 +1267,8 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 1500,
-        position: [-750, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-750, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Nog with service hole",
         ops: [
           { type: "InnerService", pos: 750, diameter: 45 },
@@ -1309,8 +1294,8 @@ export const INTERACTIONS: InteractionConfig[] = [
       {
         profile: PROFILE_70S41,
         length: 1500,
-        position: [-750, 0, -20.5],
-        rotation: ROT_BENCH_X,
+        position: [-750, 0, 0],
+        rotation: ROT_HORIZONTAL_X,
         label: "Chord with screw clusters",
         ops: [
           { type: "ScrewHoles", pos: 250, pattern: [-8, 0, 8] },
