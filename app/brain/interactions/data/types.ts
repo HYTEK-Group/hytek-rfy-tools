@@ -42,6 +42,39 @@ export const PROFILE_75S41: RfyProfile = {
 };
 
 /**
+ * 89S39 — asymmetric "inner" variant of 89S41 used for boxed members.
+ * Same web (89mm) and lip (12mm) as 89S41 but with smaller flanges (39mm
+ * each) so the inner stick nests INSIDE an 89S41 outer stick's cavity
+ * with ~2mm clearance between inner flange tip and outer lip turn-back.
+ * The overlapping flange region is where paired flange dimples land and
+ * 10g flathead screws pass through both flange surfaces (1.5mm steel grip).
+ */
+export const PROFILE_89S39: RfyProfile = {
+  metricLabel: "89 S 39",
+  gauge: "0.75",
+  shape: "S",
+  web: 89,
+  lFlange: 39,
+  rFlange: 39,
+  lip: 12,
+};
+
+/**
+ * 70S39 — asymmetric inner variant of 70S41 for wall-stud boxed
+ * assemblies (e.g. `L1-S5` parent + `L1-S5 (Box1)` inner in the
+ * GF-LBW-70.075 CSV). Smaller scale of the same nesting principle.
+ */
+export const PROFILE_70S39: RfyProfile = {
+  metricLabel: "70 S 39",
+  gauge: "0.75",
+  shape: "S",
+  web: 70,
+  lFlange: 39,
+  rFlange: 39,
+  lip: 12,
+};
+
+/**
  * One tool operation as it should be visualised on a stick.
  *
  * Coordinate convention: `pos` and `spanStart`/`spanEnd` are millimetres
@@ -98,6 +131,61 @@ export type OpConfig =
       pos: number;
       /** Pattern offsets (mm) relative to `pos`. e.g. [-8, 0, 8] for a triple. */
       pattern: number[];
+    }
+  | {
+      /**
+       * Full-depth cut THROUGH the web at a single position. Used on wall
+       * nogs at every stud crossing — lets the nog's tip slot in past the
+       * stud's flange line. Different from `LipNotch` (lip only) and
+       * `InnerNotch` (web cut spanning a length range).
+       */
+      type: "WebNotch";
+      pos: number;
+    }
+  | {
+      /**
+       * Slab-anchor hardware position (separate from `Bolt` which is just
+       * a pre-drilled hole). Renders a small indicator showing where a
+       * slab anchor will be driven. Fires on bottom plates only.
+       */
+      type: "Anchor";
+      pos: number;
+    }
+  | {
+      /**
+       * "Left Leg Notch" rollformer op — rectangular cut through flange +
+       * lip (leaving the web intact) on the LEFT flange (lFlange side).
+       * Each cut is its own discrete tool stamp. Consecutive cuts at
+       * ~48mm pitch combine into a wider opening that lets a crossing
+       * stick pass DOWN through the flange-line into the cavity.
+       */
+      type: "LeftLegNotch";
+      pos: number;
+    }
+  | {
+      /** Mirror of LeftLegNotch — cuts the RIGHT flange (rFlange side). */
+      type: "RightLegNotch";
+      pos: number;
+    }
+  | {
+      /**
+       * "Full Chamfer" rollformer op — angled triangular cut across the
+       * full flange body at a stick end so the flange terminates at the
+       * receiving stick's edge with no overhang. Position can be slightly
+       * OUTSIDE the stick (e.g. `-3` or `length+3`) per FrameCAD setup.
+       *
+       * Replaces the older `TrussChamfer` for new scenes — `TrussChamfer`
+       * is kept for backwards compatibility but renders as the same
+       * triangle-across-flange-body geometry.
+       */
+      type: "FullChamfer";
+      end: "start" | "end";
+      /**
+       * Optional overshoot in mm — how far past the stick end the
+       * chamfer's hypotenuse extends. Default 3mm. CSVs show positions
+       * like `-3` (start) and `length+3` (end), corresponding to overshoot=3.
+       */
+      overshoot?: number;
     };
 
 /**
