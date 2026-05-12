@@ -252,7 +252,7 @@ export const INTERACTIONS: InteractionConfig[] = [
     id: "A1",
     name: "A1 — T-junction (orthogonal)",
     description:
-      "A vertical stud nests INSIDE a horizontal top plate at 90°, BENCH-FLAT (both sticks lie web-on-bench, flanges UP). The stud's top 50mm is swaged so its compressed profile fits inside the plate cavity when assembled. The plate gets TWO separate LipNotches — one per flange — each centred where the corresponding stud flange (world X=±35) crosses the plate flange (world Y=2344.5 / 2414.5). InnerDimples land at the CL–CL meeting (0, 2379.5, 0). 1× #10g screw per side per FrameCAD FC-W2.",
+      "A vertical stud nests INSIDE a horizontal top plate at 90°, BENCH-FLAT (both sticks lie web-on-bench, flanges UP). The stud's top ~35mm is swaged so its compressed profile fits inside the plate cavity when assembled. The plate gets TWO separate LipNotches — one per flange — each centred where the corresponding stud flange (world X=±35) crosses the plate flange (world Y=2344.5 / 2414.5). 3-dimple cluster at the stud-end nest into the plate (per 2026-05-12 catalog item #1 — '3-dimple triangle at stud-to-plate end'). 3× #10g screws per side per FrameCAD FC-W2.",
     sticks: [
       // Stud — bench-flat, length axis +Y, web back on Z=-20.5, flanges
       // UP +Z. Length 2398, CL at world (X=0, Y∈[0, 2398], Z=0). Profile
@@ -266,14 +266,18 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: ROT_BENCH_Y,
         label: "Stud (S)",
         ops: [
-          // Swage on top 50mm — stick-local position unchanged from old
-          // A1 (Swage is along length axis, independent of cross-section
-          // orientation). When assembled the swaged section nests inside
-          // the plate's cavity.
-          { type: "Swage", spanStart: 2348, spanEnd: 2398 },
-          // Dimple at CL–CL intersection: stud CL crosses plate CL at
-          // world (0, 2379.5, 0). Stud-local z = 2379.5.
+          // Swage shortened to ~35mm per packed-frame photo evidence
+          // (catalog 2026-05-12 item #6 — engine had 200mm/50mm, reality
+          // is 30-40mm at splice line / nest-into-plate end).
+          { type: "Swage", spanStart: 2363, spanEnd: 2398 },
+          // 3-dimple cluster at the stud-to-plate joint per catalog item
+          // #1. Approximated along the length axis (the op API has only
+          // pos; true cross-section triangle would need a new op). The 3
+          // dimples sit ±10mm around the CL-CL meeting at stud-local
+          // z=2379.5.
+          { type: "InnerDimple", pos: 2369.5 },
           { type: "InnerDimple", pos: 2379.5 },
+          { type: "InnerDimple", pos: 2389.5 },
         ],
       },
       // Top plate — bench-flat, length axis +X, web back on Z=-20.5,
@@ -307,22 +311,25 @@ export const INTERACTIONS: InteractionConfig[] = [
             spanEnd: 660,
             flangeSide: "top",
           },
-          // Dimple at CL–CL intersection: stud CL X=0 → plate-local z =
-          // 0 - (-600) = 600.
+          // 3-dimple cluster on the plate, matching the stud-end pattern.
+          // Stud CL X=0 → plate-local z=600. Cluster at z ∈ {580, 600, 620}.
+          { type: "InnerDimple", pos: 580 },
           { type: "InnerDimple", pos: 600 },
+          { type: "InnerDimple", pos: 620 },
         ],
       },
     ],
     joints: [
-      // 1× #10g screw per side at the joint, at CL–CL intersection
-      // (0, 2379.5, 0). spanAxis follows the receiving stick (plate)
-      // length direction = world +X in bench-flat.
+      // 3× #10g screws per side at the joint per packed-frame catalog
+      // (each stud-end gets a 3-dimple cluster). Joint centre at CL–CL
+      // intersection (0, 2379.5, 0). spanAxis follows the receiving
+      // stick (plate) length direction = world +X in bench-flat.
       {
         position: [0, 2379.5, 0],
         axis: [0, 0, 1],
         spanAxis: [1, 0, 0],
         halfThickness: 35,
-        screwsPerSide: 1,
+        screwsPerSide: 3,
         label: "stud-to-top-plate",
       },
     ],
@@ -340,7 +347,7 @@ export const INTERACTIONS: InteractionConfig[] = [
     id: "A2",
     name: "A2 — T-junction (angled, 60°)",
     description:
-      "An angled brace meets a horizontal top plate at 60° from horizontal. The brace's tip NESTS INSIDE the plate's open mouth (mouth faces down). The brace's last 50mm is swaged so its compressed profile fits inside the plate cavity, plus a Chamfer at the very end to clear the plate's web. The plate gets a LipNotch over the brace's entry width. 1× #10g screw per side.",
+      "An angled brace meets a horizontal top plate at 60° from horizontal. The brace's tip NESTS INSIDE the plate's open mouth (mouth faces down). The brace's last ~35mm is swaged (per catalog 2026-05-12 item #6), plus a Chamfer at the very end to clear the plate's web. The plate gets a LipNotch over the brace's entry width. 3-dimple cluster at the joint (catalog item #1). 3× #10g screws per side.",
     sticks: [
       // Brace at 60° from horizontal, 1800mm. Tip at world
       // (1800·cos60°, 1800·sin60°, 0) = (900, 1559, 0).
@@ -357,15 +364,15 @@ export const INTERACTIONS: InteractionConfig[] = [
         rotation: rotForAngledIntoPlate((Math.PI / 180) * 60, "above"),
         label: "Brace (B)",
         ops: [
-          // Swage compression at the tip (last 50mm) so brace's profile
-          // fits inside plate's interior cavity
-          { type: "Swage", spanStart: 1750, spanEnd: 1800 },
+          // Swage shortened to ~35mm (catalog 2026-05-12 item #6).
+          { type: "Swage", spanStart: 1765, spanEnd: 1800 },
           // Chamfer at very end so the corner doesn't scrape plate web
           { type: "Chamfer", end: "end" },
-          // Dimple at CL–CL intersection: brace-CL crosses plate-CL at
-          // world Y = 1561 - 20.5 = 1540.5; brace t at that Y =
-          // 1540.5 / sin60° = 1778.5.
+          // 3-dimple cluster at brace-end nest into plate (catalog #1).
+          // Brace-CL meets plate-CL at brace-local z=1778.5.
+          { type: "InnerDimple", pos: 1768.5 },
           { type: "InnerDimple", pos: 1778.5 },
+          { type: "InnerDimple", pos: 1788.5 },
         ],
       },
       // Plate — horizontal, mouth opens DOWNWARD. Plate's web positioned
@@ -388,19 +395,23 @@ export const INTERACTIONS: InteractionConfig[] = [
             spanEnd: 1214.25,
             flangeSide: "both",
           },
-          // Dimple at CL–CL intersection.
+          // 3-dimple cluster on the plate, matching the brace pattern.
+          // Cluster span ±10mm around plate-local z=1189.25.
+          { type: "InnerDimple", pos: 1179.25 },
           { type: "InnerDimple", pos: 1189.25 },
+          { type: "InnerDimple", pos: 1199.25 },
         ],
       },
     ],
     joints: [
       {
         // Joint centre at CL–CL intersection: (889.25, 1540.5, 0).
+        // 3 screws per side per catalog 2026-05-12 item #1.
         position: [889.25, 1540.5, 0],
         axis: [0, 0, 1],
         spanAxis: [0, 1, 0],
         halfThickness: 35,
-        screwsPerSide: 1,
+        screwsPerSide: 3,
         label: "brace-to-top-plate",
       },
     ],
@@ -604,7 +615,7 @@ export const INTERACTIONS: InteractionConfig[] = [
     id: "A5",
     name: "A5 — Truss diagonal web at chord (45°)",
     description:
-      "A 45° diagonal truss web meeting a chord, BENCH-FLAT (both sticks lie web-on-bench, flanges UP). Diagonal has TrussChamfers at both ends, plus a Swage + InnerDimple at the tip. The chord gets the LipNotch + InnerDimple at the CL–CL intersection point.",
+      "A 45° diagonal truss web meeting a chord, BENCH-FLAT (both sticks lie web-on-bench, flanges UP). Diagonal has TrussChamfers at both ends, a short ~35mm Swage at the tip (per catalog 2026-05-12 item #6), and a 2-dimple cluster at the joint (catalog item #4 — Pratt truss diagonal→chord has 2-3 dimples). The chord gets a 50mm LipNotch + 2-dimple cluster at the CL–CL intersection.",
     sticks: [
       // Diagonal web — 45° in the bench plane (X-Y), flanges UP +Z.
       // CL goes from world (0,0,0) to (707, 707, 0) for length 1000.
@@ -618,11 +629,11 @@ export const INTERACTIONS: InteractionConfig[] = [
         ops: [
           { type: "TrussChamfer", end: "start" },
           { type: "TrussChamfer", end: "end" },
-          // Swage the last 55mm before tip — compresses the diagonal's
-          // flange depth so it clears the chord's lip turn-back where
-          // the diagonal crosses the chord's flange span.
-          { type: "Swage", spanStart: 945, spanEnd: 1000 },
-          // InnerDimple at the tip = CL–CL intersection.
+          // Swage shortened from 55mm to ~35mm (catalog 2026-05-12 item #6).
+          { type: "Swage", spanStart: 965, spanEnd: 1000 },
+          // 2-dimple cluster at the diagonal tip (catalog item #4: Pratt
+          // truss diagonal → chord crossing has 2-3 dimples per joint).
+          { type: "InnerDimple", pos: 990 },
           { type: "InnerDimple", pos: 1000 },
         ],
       },
@@ -644,18 +655,20 @@ export const INTERACTIONS: InteractionConfig[] = [
             spanEnd: 1275,
             flangeSide: "both",
           },
+          // 2-dimple cluster on chord at joint (mirrors diagonal cluster).
+          { type: "InnerDimple", pos: 1240 },
           { type: "InnerDimple", pos: 1250 },
         ],
       },
     ],
     joints: [
-      // 1× #10g screw per side at the joint, at CL–CL intersection.
+      // 2 screws per side at the diagonal→chord joint per catalog item #4.
       {
         position: [707, 707, 0],
         axis: [0, 0, 1],
         spanAxis: [1, 0, 0],
         halfThickness: 35,
-        screwsPerSide: 1,
+        screwsPerSide: 2,
         label: "diagonal-to-chord",
       },
     ],
