@@ -267,17 +267,16 @@ export const INTERACTIONS: InteractionConfig[] = [
         label: "Stud (S)",
         ops: [
           // Swage shortened to ~35mm per packed-frame photo evidence
-          // (catalog 2026-05-12 item #6 — engine had 200mm/50mm, reality
-          // is 30-40mm at splice line / nest-into-plate end).
+          // (catalog 2026-05-12 item #6).
           { type: "Swage", spanStart: 2363, spanEnd: 2398 },
-          // 3-dimple cluster at the stud-to-plate joint per catalog item
-          // #1. Approximated along the length axis (the op API has only
-          // pos; true cross-section triangle would need a new op). The 3
-          // dimples sit ±10mm around the CL-CL meeting at stud-local
-          // z=2379.5.
-          { type: "InnerDimple", pos: 2369.5 },
-          { type: "InnerDimple", pos: 2379.5 },
-          { type: "InnerDimple", pos: 2389.5 },
+          // 3-dimple TRIANGLE pattern at the stud-end (catalog item #1).
+          // Apex toward the tip (centre-high closer to tip, two lower
+          // flanking on either side of the web centreline). With the new
+          // optional webY on InnerDimple this renders as a real 2D
+          // triangle on the web face, not 3 in a line.
+          { type: "InnerDimple", pos: 2388, webY: 0 },    // apex (near tip)
+          { type: "InnerDimple", pos: 2370, webY: 25 },   // base, +Y flank
+          { type: "InnerDimple", pos: 2370, webY: -25 },  // base, -Y flank
         ],
       },
       // Top plate — bench-flat, length axis +X, web back on Z=-20.5,
@@ -311,11 +310,13 @@ export const INTERACTIONS: InteractionConfig[] = [
             spanEnd: 660,
             flangeSide: "top",
           },
-          // 3-dimple cluster on the plate, matching the stud-end pattern.
-          // Stud CL X=0 → plate-local z=600. Cluster at z ∈ {580, 600, 620}.
-          { type: "InnerDimple", pos: 580 },
-          { type: "InnerDimple", pos: 600 },
-          { type: "InnerDimple", pos: 620 },
+          // 3-dimple TRIANGLE pattern on the plate, mirroring the
+          // stud-end triangle (apex points along the plate's length axis
+          // away from the joint centre is arbitrary — symmetric here).
+          // Stud CL X=0 → plate-local z=600.
+          { type: "InnerDimple", pos: 600, webY: 25 },    // apex (top of web)
+          { type: "InnerDimple", pos: 582, webY: -15 },   // base, -z side
+          { type: "InnerDimple", pos: 618, webY: -15 },   // base, +z side
         ],
       },
     ],
@@ -368,11 +369,12 @@ export const INTERACTIONS: InteractionConfig[] = [
           { type: "Swage", spanStart: 1765, spanEnd: 1800 },
           // Chamfer at very end so the corner doesn't scrape plate web
           { type: "Chamfer", end: "end" },
-          // 3-dimple cluster at brace-end nest into plate (catalog #1).
-          // Brace-CL meets plate-CL at brace-local z=1778.5.
-          { type: "InnerDimple", pos: 1768.5 },
-          { type: "InnerDimple", pos: 1778.5 },
-          { type: "InnerDimple", pos: 1788.5 },
+          // 3-dimple TRIANGLE pattern at the brace-end (catalog item #1).
+          // Apex toward the tip (closer to brace-local z=1800), two
+          // flanking lower on either side of the web centreline.
+          { type: "InnerDimple", pos: 1789, webY: 0 },    // apex (near tip)
+          { type: "InnerDimple", pos: 1770, webY: 25 },   // base, +Y flank
+          { type: "InnerDimple", pos: 1770, webY: -25 },  // base, -Y flank
         ],
       },
       // Plate — horizontal, mouth opens DOWNWARD. Plate's web positioned
@@ -395,11 +397,11 @@ export const INTERACTIONS: InteractionConfig[] = [
             spanEnd: 1214.25,
             flangeSide: "both",
           },
-          // 3-dimple cluster on the plate, matching the brace pattern.
-          // Cluster span ±10mm around plate-local z=1189.25.
-          { type: "InnerDimple", pos: 1179.25 },
-          { type: "InnerDimple", pos: 1189.25 },
-          { type: "InnerDimple", pos: 1199.25 },
+          // 3-dimple TRIANGLE on the plate at the joint, mirroring the
+          // brace triangle. Plate-local z=1189.25 is the CL–CL meeting.
+          { type: "InnerDimple", pos: 1189.25, webY: 25 },   // apex
+          { type: "InnerDimple", pos: 1171.25, webY: -15 },  // base, -z
+          { type: "InnerDimple", pos: 1207.25, webY: -15 },  // base, +z
         ],
       },
     ],

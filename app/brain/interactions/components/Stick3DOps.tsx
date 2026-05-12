@@ -124,7 +124,14 @@ function buildOverlayMeshes(
     const key = `${op.type}-${idx}`;
     switch (op.type) {
       case "InnerDimple":
-        elements.push(<DimpleMesh key={key} pos={op.pos} innerWebX={innerWebX} />);
+        elements.push(
+          <DimpleMesh
+            key={key}
+            pos={op.pos}
+            innerWebX={innerWebX}
+            webY={op.webY ?? 0}
+          />,
+        );
         break;
 
       case "Web":
@@ -253,11 +260,23 @@ function buildOverlayMeshes(
 }
 
 // ─── Dimple — small embossed cone on the inner web face ───────────────
-function DimpleMesh({ pos, innerWebX }: { pos: number; innerWebX: number }) {
+function DimpleMesh({
+  pos,
+  innerWebX,
+  webY = 0,
+}: {
+  pos: number;
+  innerWebX: number;
+  /** Cross-section offset within the web plane (mm from web centreline). */
+  webY?: number;
+}) {
   // 5mm tall, 10mm wide cone, base flush on web inner face (x = innerWebX),
-  // apex pointing TOWARDS the flange opening (+x).
+  // apex pointing TOWARDS the flange opening (+x). webY shifts the dimple
+  // along the web-height axis (profile local +Y) — used for triangle/cluster
+  // patterns where multiple dimples sit at the same stick-length z but at
+  // different web-Y positions.
   return (
-    <group position={[innerWebX, 0, pos]} rotation={[0, 0, -Math.PI / 2]}>
+    <group position={[innerWebX, webY, pos]} rotation={[0, 0, -Math.PI / 2]}>
       <mesh castShadow receiveShadow>
         <coneGeometry args={[5, 5, 16]} />
         <meshStandardMaterial color="#facc15" metalness={0.6} roughness={0.5} />

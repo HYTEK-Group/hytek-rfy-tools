@@ -97,6 +97,15 @@ export type OpConfig =
   | {
       type: "InnerDimple";
       pos: number;
+      /**
+       * Optional cross-section offset on the web (mm from web centreline,
+       * along the web-height axis = profile local +Y). Default = 0 (centred).
+       * Use this to place the 3-dimple triangle pattern observed at every
+       * stud-to-plate end on packed-frame photos (catalog 2026-05-12 item
+       * #1): one centre-high near the tip, two lower flanking it on either
+       * side of the web centreline.
+       */
+      webY?: number;
     }
   | {
       type: "InnerNotch";
