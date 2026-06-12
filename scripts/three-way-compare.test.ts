@@ -29,7 +29,7 @@ interface Stats {
 function summarise(label: string, rfyBytes: Buffer): Stats {
   const inner = decryptRfy(rfyBytes);
   const doc = decodeXml(inner);
-  let plans = doc.project.plans.length;
+  const plans = doc.project.plans.length;
   let frames = 0, sticks = 0, ops_total = 0;
   const ops_by_type: Record<string, number> = {};
   for (const p of doc.project.plans) {

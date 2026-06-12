@@ -234,6 +234,7 @@ export default function ViewerPage() {
             </button>
           </div>
         )}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full-page reload back to the launcher is intentional: it resets in-memory state, including the viewer's zustand doc store */}
         <a
           href="/"
           className="text-xs px-3 py-1.5 rounded border border-zinc-700 hover:border-yellow-400 hover:text-yellow-400 text-zinc-300 transition"

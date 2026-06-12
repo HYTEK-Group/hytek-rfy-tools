@@ -91,6 +91,7 @@ export default function GeneratePage() {
           <h1 className="text-3xl font-bold">
             <span className="text-yellow-400">HYTEK</span> Frame PDF Generator
           </h1>
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full-page reload back to the launcher is intentional: it resets all in-memory tool state */}
           <a
             href="/"
             className="text-sm px-3 py-1.5 rounded border border-zinc-700 hover:border-yellow-400 hover:text-yellow-400 text-zinc-300 transition"
@@ -100,7 +101,7 @@ export default function GeneratePage() {
         </div>
         <p className="text-zinc-400 mt-1">
           HYTEK <code className="text-yellow-400">.xml</code> → Manufacturing PDF (one page per frame).
-          Replaces Detailer's PDF export.
+          Replaces Detailer&apos;s PDF export.
         </p>
       </header>
 
@@ -208,11 +209,11 @@ export default function GeneratePage() {
       )}
 
       <section className="mt-10 rounded-xl border border-zinc-700 bg-zinc-900/50 p-5 text-sm text-zinc-400">
-        <h3 className="font-semibold text-zinc-200 mb-2">What's in the PDF?</h3>
+        <h3 className="font-semibold text-zinc-200 mb-2">What&apos;s in the PDF?</h3>
         <ul className="space-y-1 list-disc pl-5">
           <li>One page per frame across all plans, in plan order.</li>
           <li>Title block: project, job, plan, frame name, dimensions, weight, stick count.</li>
-          <li>Stick outlines drawn from the codec's elevation polygons (not just bbox lines).</li>
+          <li>Stick outlines drawn from the codec&apos;s elevation polygons (not just bbox lines).</li>
           <li>Tooling marks color-coded per type (lip notch / dimple / swage / bolt / etc.) — same palette as the wall viewer.</li>
           <li>Overall length + height dimensions on each page.</li>
         </ul>

@@ -28,6 +28,8 @@ import {
   rgb,
   degrees,
   type RGB,
+  type PDFFont,
+  type PDFOperator,
   pushGraphicsState,
   popGraphicsState,
   moveTo,
@@ -612,8 +614,8 @@ function drawFramePage(
   doc: RfyDocument,
   planName: string,
   frame: RfyFrame,
-  font: any,
-  fontBold: any,
+  font: PDFFont,
+  fontBold: PDFFont,
   opts: Required<PdfOptions>,
   pageNum: number,
   totalPages: number,
@@ -767,8 +769,8 @@ function drawTopBomStrip(
   doc: RfyDocument,
   planName: string,
   frame: RfyFrame,
-  font: any,
-  fontBold: any,
+  font: PDFFont,
+  fontBold: PDFFont,
   opts: Required<PdfOptions>,
   W: number,
   H: number,
@@ -866,7 +868,7 @@ function drawStick(
   page: PDFPage,
   stick: RfyStick,
   layout: PageLayout,
-  font: any,
+  font: PDFFont,
   opts: Required<PdfOptions>,
   wallStyle: boolean,
   webOverrides: Map<string, 1 | -1>
@@ -1183,7 +1185,7 @@ function drawStrapBrace(
   page: PDFPage,
   lines: { start: { x: number; y: number }; end: { x: number; y: number } }[],
   layout: PageLayout,
-  font: any,
+  font: PDFFont,
 ): void {
   const { s, ox, oy } = layout;
   const STRAP_HALF_MM = 25; // 50mm strap → ±25mm offset
@@ -1238,7 +1240,7 @@ function drawStrapBrace(
  * Draw a hexagon-in-circle anchor mark with an "F10" label nearby.
  * Used at each end of a strap brace to mark the mechanical anchor.
  */
-function drawAnchorMark(page: PDFPage, pt: { x: number; y: number }, r: number, font: any): void {
+function drawAnchorMark(page: PDFPage, pt: { x: number; y: number }, r: number, font: PDFFont): void {
   // Outer circle (hairline).
   page.drawCircle({ x: pt.x, y: pt.y, size: r, color: undefined, borderColor: rgb(0, 0, 0), borderWidth: 0.4 });
   // Inscribed hexagon (6-segment polyline).
@@ -1291,7 +1293,7 @@ function drawCallouts(
   page: PDFPage,
   labels: { pos: { x: number; y: number }; text: string; size: number; angle: number }[],
   layout: PageLayout,
-  font: any,
+  font: PDFFont,
 ): void {
   const { s, ox, oy } = layout;
   for (const lb of labels) {
@@ -1325,7 +1327,7 @@ function drawDimChains(
   frame: RfyFrame,
   bb: BBox,
   layout: PageLayout,
-  font: any,
+  font: PDFFont,
 ): void {
   const { s, ox, oy } = layout;
 
@@ -1453,7 +1455,7 @@ function drawToolingLegend(
   page: PDFPage,
   frame: RfyFrame,
   layout: PageLayout,
-  font: any,
+  font: PDFFont,
   W: number,
   H: number,
 ): void {
@@ -1549,8 +1551,8 @@ function drawFooter(
   doc: RfyDocument,
   planName: string,
   frame: RfyFrame,
-  font: any,
-  fontBold: any,
+  font: PDFFont,
+  fontBold: PDFFont,
   opts: Required<PdfOptions>,
   pageNum: number,
   totalPages: number,
@@ -1852,7 +1854,7 @@ function drawFilledPolygon(
   strokeWidth: number
 ): void {
   if (pts.length < 3) return;
-  const ops: any[] = [pushGraphicsState()];
+  const ops: PDFOperator[] = [pushGraphicsState()];
   if (fillColor) ops.push(setFillingColor(fillColor));
   if (strokeColor && strokeWidth > 0) {
     ops.push(setStrokingColor(strokeColor));

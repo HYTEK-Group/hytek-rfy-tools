@@ -8,7 +8,7 @@
 //   COMPARE_INNER=1 COMPARE_PLAN=GF-LBW-70.075 COMPARE_JOB=HG260017 npx vitest run scripts/compare-inner-xml.test.ts
 
 import { describe, it } from "vitest";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { framecadImportToRfy } from "../lib/framecad-import";
 import { decryptRfy } from "@hytek/rfy-codec";
@@ -81,8 +81,7 @@ describe.skipIf(!RUN)("compare-inner-xml", () => {
 
     // Save both for offline diff
     const outDir = join(process.cwd(), "scripts", "compare-output");
-    const fs = require("node:fs") as typeof import("node:fs");
-    if (!existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
     const refOut = join(outDir, `${JOB}_${PLAN}.ref.xml`);
     const codecOut = join(outDir, `${JOB}_${PLAN}.codec.xml`);
     writeFileSync(refOut, refInner, "utf-8");

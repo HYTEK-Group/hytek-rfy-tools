@@ -241,6 +241,7 @@ export default function RegressionPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full-page reload back to the launcher is intentional: it resets all in-memory tool state */}
           <a
             href="/"
             className="text-sm px-3 py-1.5 rounded border border-zinc-700 hover:border-amber-400 hover:text-amber-400 text-zinc-300 transition"

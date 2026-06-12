@@ -130,6 +130,7 @@ export default function ToolingRulesPage() {
           <h1 className="text-3xl font-bold">
             <span className="text-yellow-400">HYTEK</span> Tooling Rules Registry
           </h1>
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full-page reload back to the launcher is intentional: it resets all in-memory tool state */}
           <a href="/" className="text-sm px-3 py-1.5 rounded border border-zinc-700 hover:border-yellow-400 hover:text-yellow-400 text-zinc-300 transition">
             ← Home
           </a>
@@ -258,7 +259,7 @@ export default function ToolingRulesPage() {
       {section === "trim" && (
         <div className="space-y-3">
           <p className="text-sm text-zinc-400 mb-2">
-            Trim rules run BEFORE per-stick rules fire — they shorten or extend the stick's start/end coordinates.
+            Trim rules run BEFORE per-stick rules fire — they shorten or extend the stick&apos;s start/end coordinates.
             Source: <code className="text-yellow-400">framecad-import.ts</code>.
           </p>
           {Object.entries(data.trimRules).map(([key, rule]) => (

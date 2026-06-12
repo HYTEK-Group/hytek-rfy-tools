@@ -110,7 +110,7 @@ describe.skipIf(!RUN)("multi-job-stick-compare", () => {
     const outBase = join(process.cwd(), "tmp_detailer_test", "multi-job");
     mkdirSync(outBase, { recursive: true });
 
-    const results: any[] = [];
+    const results: { jobnum: string; status: "ok" | "fail"; planName?: string; error?: string }[] = [];
     for (const jobnum of JOBS_TO_TEST) {
       const target = findTargetForJob(jobnum);
       if (!target) continue;
@@ -149,9 +149,9 @@ describe.skipIf(!RUN)("multi-job-stick-compare", () => {
         }, null, 2));
         results.push({ jobnum, status: "ok", planName: target.planName });
         console.log(`  OK — ref ${refBytes.length}B / codec ${codecResult.rfy.length}B`);
-      } catch (e: any) {
-        console.log(`  FAIL: ${e.message}`);
-        results.push({ jobnum, status: "fail", error: String(e.message) });
+      } catch (e) {
+        console.log(`  FAIL: ${(e as Error).message}`);
+        results.push({ jobnum, status: "fail", error: String((e as Error).message) });
       }
     }
 

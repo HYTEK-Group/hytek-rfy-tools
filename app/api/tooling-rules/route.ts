@@ -16,7 +16,7 @@
 // The intent: anyone (Scott or future ops staff) can see EXACTLY what
 // rules drive the rollformer output, without having to read TS code.
 import { NextResponse } from "next/server";
-import { RULE_TABLE } from "@hytek/rfy-codec";
+import { RULE_TABLE, type OpRule, type RuleGroup } from "@hytek/rfy-codec";
 
 export const runtime = "nodejs";
 
@@ -91,7 +91,7 @@ const TRIM_RULES = {
 
 // Convert a rule entry to a JSON-friendly representation.
 // Predicates (functions) can't be serialized — we mark them as opaque.
-function ruleToJson(rule: any) {
+function ruleToJson(rule: OpRule) {
   return {
     toolType: rule.toolType,
     kind: rule.kind,
@@ -104,7 +104,7 @@ function ruleToJson(rule: any) {
   };
 }
 
-function groupToJson(g: any, index: number) {
+function groupToJson(g: RuleGroup, index: number) {
   return {
     id: `group-${index}`,
     rolePattern: g.rolePattern.source ?? String(g.rolePattern),
@@ -119,7 +119,7 @@ function groupToJson(g: any, index: number) {
 }
 
 export async function GET() {
-  const groups = (RULE_TABLE as any[]).map(groupToJson);
+  const groups = RULE_TABLE.map(groupToJson);
   return NextResponse.json({
     version: 2,
     description: "HYTEK RFY codec rule registry — all rules that drive the F300i rollformer output. See routes /rules/tooling for the editable view.",

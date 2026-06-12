@@ -316,6 +316,7 @@ export default function Hd1Page() {
               <span className="text-[#FFCB05]">HYTEK</span> Detailer 1{" "}
               <span className="text-zinc-400 text-2xl sm:text-3xl">(HD1)</span>
             </h1>
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full-page reload back to the launcher is intentional: it resets all in-memory tool state */}
             <a
               href="/"
               className="text-sm px-3 py-2 rounded border border-zinc-700 hover:border-[#FFCB05] hover:text-[#FFCB05] text-zinc-300 transition"
@@ -331,7 +332,7 @@ export default function Hd1Page() {
             → get the rollformer <code>.rfy</code>, the per-plan <code>.csv</code>, and a printable
             elevation <code>.pdf</code>. Bundle them all as a ZIP for one-click handoff.
             <span className="block text-zinc-600 mt-1">
-              (the <code>framecad_import</code> tag is the XML schema's element name —
+              (the <code>framecad_import</code> tag is the XML schema&apos;s element name —
               kept as-is since renaming it would break input parsing)
             </span>
           </p>

@@ -34,8 +34,6 @@ export function Stick3D({ stick, stickKey, selected, onSelect }: Stick3DProps) {
     });
   }, [stick.profile.web, stick.profile.lFlange, stick.profile.rFlange, stick.profile.lip, stick.profile.gauge, m?.length]);
 
-  if (!m || !geometry) return null;
-
   // Position + orient the stick in 3D world space.
   //
   // Profile axes (from lib/profile-extrude.ts):
@@ -54,7 +52,11 @@ export function Stick3D({ stick, stickKey, selected, onSelect }: Stick3DProps) {
   // chord webs ended up facing sideways while web members stayed
   // flat, producing the inconsistent rendering Scott flagged
   // 2026-05-05 on the TIN truss view.
-  const angle = m.angle;
+  //
+  // NOTE: hooks must run unconditionally (rules-of-hooks), so this memo
+  // sits ABOVE the null-midline early return; angle falls back to 0 in
+  // that case and the result is discarded.
+  const angle = m?.angle ?? 0;
   const quat = useMemo(() => {
     const stickAxis = new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0);
     const flangeDir = new THREE.Vector3(0, 0, 1);  // always towards viewer
@@ -62,6 +64,8 @@ export function Stick3D({ stick, stickKey, selected, onSelect }: Stick3DProps) {
     const m4 = new THREE.Matrix4().makeBasis(flangeDir, webHeightDir, stickAxis);
     return new THREE.Quaternion().setFromRotationMatrix(m4);
   }, [angle]);
+
+  if (!m || !geometry) return null;
 
   const colour = selected ? "#FFCB05" : "#a8a8b0";
 

@@ -66,8 +66,16 @@ export function Wall() {
   }, [frame]);
 
   // Live view state — supports pan/zoom by mutating offset+scale.
+  // Reset to the fitted view whenever the frame (and hence initialView)
+  // changes. Done with the render-time "adjust state when a prop changes"
+  // pattern (react.dev) instead of an effect, so the reset commits in the
+  // same render pass — no stale-view paint, same final state.
   const [view, setView] = useState(initialView);
-  useEffect(() => { setView(initialView); }, [initialView]);
+  const [prevInitialView, setPrevInitialView] = useState(initialView);
+  if (prevInitialView !== initialView) {
+    setPrevInitialView(initialView);
+    setView(initialView);
+  }
 
   // Pan: drag with primary button on empty area.
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -307,6 +315,7 @@ export function Wall() {
             onMouseUp={onMouseUp}
             onMouseLeave={onMouseUp}
             onClick={onCanvasClick}
+            // eslint-disable-next-line react-hooks/refs -- panRef is deliberately a ref (not state) so pan moves don't re-render; the cursor re-evaluates anyway because every pan move calls setView. Converting to state would add extra renders.
             style={{ cursor: tool === "draw-stick" ? "crosshair" : activeDrag ? "grabbing" : panRef.current ? "grabbing" : "grab" }}
           >
             <defs>

@@ -186,8 +186,8 @@ describe.skipIf(!RUN)("ab-test-simplifiers", () => {
             if (!aggByType[t]) aggByType[t] = { exact: 0, small: 0, medium: 0, large: 0, missing: 0, extra: 0 };
             for (const k of Object.keys(byType[t]!) as (keyof Counts)[]) aggByType[t]![k] += byType[t]![k];
           }
-        } catch (e: any) {
-          console.log(`  ${job.jobnum}: FAIL ${e.message}`);
+        } catch (e) {
+          console.log(`  ${job.jobnum}: FAIL ${(e as Error).message}`);
         }
       }
       results.push({ scenario: sc.label, totals: aggTotals, byType: aggByType });

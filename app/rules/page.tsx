@@ -36,16 +36,26 @@ export default function RulesPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Reset selection when tab changes — IDs are namespaced by tab
-  useEffect(() => { setSelectedId(null); setEditingId(null); }, [tab]);
+  // Switch tab + reset selection — IDs are namespaced by tab. Done in the
+  // event handler (single batched render) rather than an effect, per
+  // react-hooks/set-state-in-effect.
+  function switchTab(t: Tab) {
+    setTab(t);
+    setSelectedId(null);
+    setEditingId(null);
+  }
 
   // Reload data from server. Called on initial mount AND after ruleset switches.
+  // Starts with Promise.resolve() so no setState runs synchronously when the
+  // mount effect below invokes it (react-hooks/set-state-in-effect).
   const reloadFromServer = useCallback(() => {
-    setLoading(true);
-    Promise.all([
-      fetch("/api/setups").then(r => r.json() as Promise<SetupsResponse | { error: string }>),
-      fetch("/api/frame-types").then(r => r.json() as Promise<FrameTypesResponse | { error: string }>),
-    ]).then(([s, f]) => {
+    Promise.resolve().then(() => {
+      setLoading(true);
+      return Promise.all([
+        fetch("/api/setups").then(r => r.json() as Promise<SetupsResponse | { error: string }>),
+        fetch("/api/frame-types").then(r => r.json() as Promise<FrameTypesResponse | { error: string }>),
+      ]);
+    }).then(([s, f]) => {
       if ("error" in s) { setError(s.error); return; }
       if ("error" in f) { setError(f.error); return; }
       setSetupsFull(s.full);
@@ -257,6 +267,7 @@ export default function RulesPage() {
           <h1 className="text-2xl font-bold">
             <span className="text-yellow-400">HYTEK</span> Rules Manager
           </h1>
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full-page reload back to the launcher is intentional: it resets all in-memory tool state */}
           <a href="/" className="text-sm text-zinc-400 hover:text-zinc-200">← Back to RFY tools</a>
         </div>
         <p className="text-sm text-zinc-400">
@@ -277,7 +288,7 @@ export default function RulesPage() {
         {(["machines", "frames"] as const).map(t => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => switchTab(t)}
             className={`px-4 py-2 text-sm font-medium ${
               tab === t ? "text-amber-400 border-b-2 border-amber-400" : "text-zinc-400 hover:text-zinc-200"
             }`}

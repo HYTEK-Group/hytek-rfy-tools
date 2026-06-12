@@ -12,12 +12,19 @@ import { useState } from "react";
 
 type Confidence = "high" | "medium" | "low" | "unknown";
 
+// Tooling op as it arrives in the review JSON — only `type` is read here;
+// everything else is passed through untouched.
+interface ToolingOp {
+  type: string;
+  [key: string]: unknown;
+}
+
 interface Stick {
   name: string;
   length: number;
   profile: string;
   role: string;
-  tooling: any[];
+  tooling: ToolingOp[];
   confidence: Confidence;
   reasons: string[];
   bucket: string;
@@ -49,7 +56,7 @@ function confColor(c: Confidence): string {
   }
 }
 
-function opSummary(ops: any[]): string {
+function opSummary(ops: ToolingOp[]): string {
   if (!ops || ops.length === 0) return "(no ops)";
   const counts: Record<string, number> = {};
   for (const op of ops) counts[op.type] = (counts[op.type] || 0) + 1;

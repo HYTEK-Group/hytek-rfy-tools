@@ -29,19 +29,27 @@ export default function RulesetSelector({ onActiveChanged, isDirty, onSave }: Pr
   const [saveAsDesc, setSaveAsDesc] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function loadRulesets() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/rulesets");
-      const j = await res.json() as { rulesets?: RulesetEntry[]; error?: string };
-      if (j.error) throw new Error(j.error);
-      setRulesets(j.rulesets ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+  // Promise-chain loader (not async/await) so the effect below never calls
+  // setState synchronously — the initial setLoading/setError run in a
+  // microtask, which react-hooks/set-state-in-effect requires.
+  function loadRulesets() {
+    return Promise.resolve()
+      .then(() => {
+        setLoading(true);
+        setError(null);
+        return fetch("/api/rulesets");
+      })
+      .then((res) => res.json() as Promise<{ rulesets?: RulesetEntry[]; error?: string }>)
+      .then((j) => {
+        if (j.error) throw new Error(j.error);
+        setRulesets(j.rulesets ?? []);
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   }
 
   useEffect(() => { loadRulesets(); }, []);
