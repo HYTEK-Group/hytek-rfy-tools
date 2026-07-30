@@ -5,14 +5,21 @@
   --hytek-yellow: #FFCB05;
   --hytek-black: #231F20;
 
-  --background: #ffffff;
-  --foreground: #231F20;
-  --card: #ffffff;
-  --card-foreground: #231F20;
-  --muted: #f3f4f6;
-  --muted-foreground: #6b7280;
-  --border: #e5e7eb;
-  --input: #ffffff;
+  /* Light mode is a DELIBERATE NO-OP in this app.
+     RFY Tools is yellow-on-black: the brand accent (Tailwind yellow-400,
+     #FDC700) scores 1.57:1 on white and 10.4:1 on #231F20 — on a white shell
+     every heading, the HYTEK wordmark and the emphasis text simply vanish.
+     Until a real light palette is designed (separate work), :root carries the
+     app's ORIGINAL production dark surfaces, so toggling to "light" leaves the
+     app looking exactly like it does in production instead of going blank. */
+  --background: #231F20;   /* was body { background: var(--hytek-black) } */
+  --foreground: #ffffff;   /* was body { color: white } */
+  --card: #18181b;         /* zinc-900  — the card/panel fill this replaced */
+  --card-foreground: #ffffff;
+  --muted: #27272a;        /* zinc-800  — the hover fill this replaced */
+  --muted-foreground: #a1a1aa; /* zinc-400 — 6.4:1 on the shell */
+  --border: #3f3f46;       /* zinc-700  — the border this replaced */
+  --input: #18181b;
 }
 
 .dark {
@@ -27,6 +34,11 @@
 }
 
 @theme inline {
+  /* Registers the brand yellow with Tailwind so utilities like
+     hover:border-hytek-yellow / hover:text-hytek-yellow actually emit CSS.
+     Without this the theme toggle's own hover state generated nothing. */
+  --color-hytek-yellow: var(--hytek-yellow);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);

@@ -104,8 +104,11 @@ export default function ToolingRulesPage() {
     );
   }, [data, filter]);
 
+  // Explicit dark shells below: this page is still hardcoded zinc/yellow, so
+  // each of its three states must carry its own dark background rather than
+  // inherit the themeable body.
   if (error) return (
-    <main className="min-h-screen p-8 max-w-6xl mx-auto">
+    <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8 max-w-6xl mx-auto">
       <div className="rounded-xl border border-red-700 bg-red-950/40 p-6 text-red-200">
         <h1 className="text-xl font-semibold mb-2">Failed to load rules</h1>
         <pre className="text-sm">{error}</pre>
@@ -114,13 +117,13 @@ export default function ToolingRulesPage() {
   );
 
   if (!data) return (
-    <main className="min-h-screen p-8 max-w-6xl mx-auto text-zinc-400">
+    <main className="min-h-screen bg-zinc-950 p-8 max-w-6xl mx-auto text-zinc-400">
       Loading rule registry...
     </main>
   );
 
   return (
-    <main className="min-h-screen p-8 max-w-6xl mx-auto">
+    <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8 max-w-6xl mx-auto">
       {/* HYTEK Group official logo — yellow on black, per brand manual. */}
       <div className="flex items-center gap-3 mb-4">
         <img src="/hytek-group-logo.png" alt="HYTEK GROUP" className="h-10" />
