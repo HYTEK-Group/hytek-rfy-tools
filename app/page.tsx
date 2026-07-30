@@ -115,21 +115,21 @@ function ConverterCard({ mode, primary = false }: { mode: Mode; primary?: boolea
     <div
       className={`rounded-2xl p-6 flex flex-col gap-4 ${
         primary
-          ? "border-2 border-yellow-400 bg-zinc-900"
-          : "border border-zinc-700 bg-zinc-900/40"
+          ? "border-2 border-yellow-400 bg-card"
+          : "border border-border bg-card/40"
       }`}
     >
       <div>
-        <h2 className={`text-xl font-semibold ${primary ? "text-yellow-400" : "text-zinc-300"}`}>{cfg.title}</h2>
-        <p className="text-sm text-zinc-400 mt-1">{cfg.subtitle}</p>
+        <h2 className={`text-xl font-semibold ${primary ? "text-yellow-400" : "text-foreground"}`}>{cfg.title}</h2>
+        <p className="text-sm text-muted-foreground mt-1">{cfg.subtitle}</p>
       </div>
       <label
         className={`block border-2 border-dashed rounded-xl p-${primary ? "8" : "6"} text-center cursor-pointer transition ${
           busy
-            ? "border-zinc-700 bg-zinc-900 cursor-wait"
+            ? "border-border bg-card cursor-wait"
             : primary
-              ? "border-yellow-400/60 hover:border-yellow-400 hover:bg-zinc-800"
-              : "border-zinc-600 hover:border-zinc-400 hover:bg-zinc-800"
+              ? "border-yellow-400/60 hover:border-yellow-400 hover:bg-muted"
+              : "border-border hover:border-foreground hover:bg-muted"
         }`}
       >
         <input
@@ -142,7 +142,7 @@ function ConverterCard({ mode, primary = false }: { mode: Mode; primary?: boolea
           }}
           className="hidden"
         />
-        <span className="text-sm text-zinc-300">
+        <span className="text-sm text-foreground">
           {busy ? "Converting…" : `Click to choose a ${cfg.from} file`}
         </span>
       </label>
@@ -154,7 +154,7 @@ function ConverterCard({ mode, primary = false }: { mode: Mode; primary?: boolea
 
 export default function Page() {
   return (
-    <main className="min-h-screen p-8 max-w-5xl mx-auto">
+    <main className="min-h-screen bg-background p-8 max-w-5xl mx-auto">
       <header className="mb-8">
         {/* HYTEK Group official logo — yellow on black, per brand manual.
             Match siblings (hytek-hub, hytek-detailing, hytek-install). */}
@@ -192,17 +192,17 @@ export default function Page() {
             </a>
             <a
               href="/rules"
-              className="text-sm px-3 py-1.5 rounded border border-zinc-700 hover:border-yellow-400 hover:text-yellow-400 text-zinc-300 transition"
+              className="text-sm px-3 py-1.5 rounded border border-border hover:border-yellow-400 hover:text-yellow-400 text-foreground transition"
             >
               Setups & Frames →
             </a>
           </div>
         </div>
-        <p className="text-zinc-400 mt-1">
+        <p className="text-muted-foreground mt-1">
           Decode, edit, and re-encode HYTEK <code className="text-yellow-400">.rfy</code> files.
         </p>
-        <p className="text-zinc-500 text-sm mt-3">
-          <strong className="text-zinc-300">Standard workflow:</strong>{" "}
+        <p className="text-muted-foreground text-sm mt-3">
+          <strong className="text-foreground">Standard workflow:</strong>{" "}
           (1) Decode → get <code>.txt</code> + <code>.xml</code> bundle ·{" "}
           (2) Open either in Notepad → edit ·{" "}
           (3) Upload the edited file → get a new <code>.rfy</code>.
@@ -220,7 +220,7 @@ export default function Page() {
         <ConverterCard mode="encode-auto" primary />
       </div>
 
-      <h3 className="text-xs uppercase tracking-wider text-zinc-500 mt-10 mb-3">CSV only — for scripts / tools</h3>
+      <h3 className="text-xs uppercase tracking-wider text-muted-foreground mt-10 mb-3">CSV only — for scripts / tools</h3>
       <div className="grid sm:grid-cols-2 gap-6">
         <ConverterCard mode="rfy-to-csv" />
         <ConverterCard mode="csv-to-rfy" />
@@ -234,23 +234,23 @@ export default function Page() {
       <h3 className="text-xs uppercase tracking-wider text-yellow-400 mt-10 mb-3">Forge — Operator Review</h3>
       <a
         href="/forge/review"
-        className="block rounded-xl border border-zinc-700 bg-zinc-900/50 hover:border-yellow-400 hover:bg-zinc-900 p-5 transition-colors"
+        className="block rounded-xl border border-border bg-card/50 hover:border-yellow-400 hover:bg-card p-5 transition-colors"
       >
         <h4 className="text-lg font-semibold text-yellow-400 mb-1">/forge/review — confidence-flagged review</h4>
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-muted-foreground">
           Drop a HYTEK <code>.xml</code>; the codec runs and each stick is
           scored against 66,262 historical Detailer-stamped sticks. Red rows
           deviate ≥2σ from typical or are missing common op types — review
           these before sending the RFY to the rollformer.
         </p>
-        <p className="text-xs text-zinc-500 mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           Use this when /api/forge/encode misses the cache and you want to
           double-check the codec output before it cuts steel.
         </p>
       </a>
 
-      <section className="mt-10 rounded-xl border border-zinc-700 bg-zinc-900/50 p-5 text-sm text-zinc-400">
-        <h3 className="font-semibold text-zinc-200 mb-2">Which format should I edit?</h3>
+      <section className="mt-10 rounded-xl border border-border bg-card/50 p-5 text-sm text-muted-foreground">
+        <h3 className="font-semibold text-foreground mb-2">Which format should I edit?</h3>
         <ul className="space-y-2">
           <li>
             <strong className="text-yellow-400">.txt</strong> (from the standard decode) — plain-text rollformer
@@ -267,7 +267,7 @@ export default function Page() {
         </ul>
       </section>
 
-      <footer className="mt-10 text-xs text-zinc-500">
+      <footer className="mt-10 text-xs text-muted-foreground">
         Powered by{" "}
         <a href="https://github.com/scotttextor/hytek-rfy-codec" className="text-yellow-400 hover:underline">
           @hytek/rfy-codec

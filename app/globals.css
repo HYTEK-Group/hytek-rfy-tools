@@ -1,12 +1,61 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
   --hytek-yellow: #FFCB05;
   --hytek-black: #231F20;
+
+  /* Light mode is a DELIBERATE NO-OP in this app.
+     RFY Tools is yellow-on-black: the brand accent (Tailwind yellow-400,
+     #FDC700) scores 1.57:1 on white and 10.4:1 on #231F20 — on a white shell
+     every heading, the HYTEK wordmark and the emphasis text simply vanish.
+     Until a real light palette is designed (separate work), :root carries the
+     app's ORIGINAL production dark surfaces, so toggling to "light" leaves the
+     app looking exactly like it does in production instead of going blank. */
+  --background: #231F20;   /* was body { background: var(--hytek-black) } */
+  --foreground: #ffffff;   /* was body { color: white } */
+  --card: #18181b;         /* zinc-900  — the card/panel fill this replaced */
+  --card-foreground: #ffffff;
+  --muted: #27272a;        /* zinc-800  — the hover fill this replaced */
+  --muted-foreground: #a1a1aa; /* zinc-400 — 6.4:1 on the shell */
+  --border: #3f3f46;       /* zinc-700  — the border this replaced */
+  --input: #18181b;
+}
+
+.dark {
+  --background: #17151a;
+  --foreground: #f5f5f5;
+  --card: #211f26;
+  --card-foreground: #f5f5f5;
+  --muted: #2a2730;
+  --muted-foreground: #9ca3af;
+  --border: #34313b;
+  --input: #211f26;
+}
+
+@theme inline {
+  /* Registers the brand yellow with Tailwind so utilities like
+     hover:border-hytek-yellow / hover:text-hytek-yellow actually emit CSS.
+     Without this the theme toggle's own hover state generated nothing. */
+  --color-hytek-yellow: var(--hytek-yellow);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
 }
 
 body {
-  background: var(--hytek-black);
-  color: white;
+  background: var(--background);
+  color: var(--foreground);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+input, select, textarea {
+  background: var(--input);
+  color: var(--foreground);
 }

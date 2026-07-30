@@ -82,7 +82,9 @@ export default function GeneratePage() {
   }
 
   return (
-    <main className="min-h-screen p-8 max-w-5xl mx-auto">
+    // Explicit dark shell: this page is still hardcoded zinc/yellow, so it must
+    // carry its own dark background rather than inherit the themeable body.
+    <main className="min-h-screen bg-zinc-950 text-zinc-100 p-8 max-w-5xl mx-auto">
       <header className="mb-8">
         <div className="flex items-center gap-3 mb-4">
           <img src="/hytek-group-logo.png" alt="HYTEK GROUP" className="h-10" />
