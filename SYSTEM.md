@@ -1,7 +1,7 @@
 ---
 app: hytek-rfy-tools
 url: https://hytek-rfy-tools.vercel.app
-status: side-tool                    # Scott, 17/09/2026 (decision 16) — not archived; NOT part of the live business system
+status: side-tool                    # Scott, 17/09/2026 (side-tool decision) — not archived; NOT part of the live business system
 live_system: false
 role: none                           # no database at all
 unattended: none                     # no cron, no vercel.json, no scheduled task — it only runs when a person drops a file on it
@@ -23,6 +23,10 @@ events:
   out: []
   in: []
 exemptions: []
+rule9_ok:                            # rule 9: developer-machine fallbacks only; absent on Vercel; nothing scheduled or unattended reads them
+  - { path: lib/forge-paths.ts, reason: "developer-machine fallback folder for the FrameCAD Detailer oracle cache, used only when FORGE_CACHE_DIR and the profile OneDrive are absent; absent on Vercel; nothing scheduled" }
+  - { path: lib/oracle-cache.ts, reason: "developer-machine fallback folders for the Detailer oracle cache and the HG260044 reference copy; absent on Vercel, where the cache is simply missing; nothing scheduled" }
+  - { path: lib/regression.ts, reason: "developer-machine default for the rfy-codec test corpus (CORPUS_DIR overrides it), read by the /regression page a person opens; absent on Vercel; nothing scheduled" }
 ---
 
 # hytek-rfy-tools — passport
@@ -40,9 +44,10 @@ work is done by `@hytek/rfy-codec` (pinned to commit `742c0ad6`).
 
 ## Who uses it
 
-Detailers and supervisors, from two Hub portal tiles behind the owner login:
-**HD1 — RFY/CSV/PDF Generator** and **RFY Tools**. A person drops a file in and
-downloads the result.
+People reach it from two Hub portal tiles, both behind the owner login
+(`ownerOnly` in hytek-hub `lib/apps.ts`): **HD1 — RFY/CSV/PDF Generator** for
+admins, supervisors and detailers, and **RFY Tools** for admins and detailers
+only. A person drops a file in and downloads the result.
 
 **Worth knowing:** the Hub's own tile comment calls HD1 "critical factory
 infrastructure", because the rollformer needs the files it makes. "Side tool"
@@ -64,6 +69,12 @@ affected.
 ## Checks
 
 `npm test` (vitest) and `npm run typecheck`. Some tests need the Y: drive or the
-local Detailer cache and time out on a machine without them. The canonical
+local Detailer cache and time out on a machine without them. Measured on
+17/09/2026 on the work PC: 56 passed, 12 failed and 11 skipped. All 12 failures
+were those cache and Y: drive tests, where the OneDrive cache files could not be
+read. `npm run typecheck` failed there only because that clone's installed
+modules predate `next-themes` and `lucide-react`; `npm ci` fixes it. The canonical
 `hytek-brain/tool/architecture-check.ts --root <this repo>` passes against this
-passport.
+passport (checked 17/09/2026). Three files name a `C:\Users\Scott\...` folder as
+a developer-machine fallback, so they are listed under `rule9_ok` with the
+reason: `lib/forge-paths.ts`, `lib/oracle-cache.ts` and `lib/regression.ts`.
